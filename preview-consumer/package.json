@@ -1,0 +1,14 @@
+{
+  "name": "mind-port-preview-consumer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5174"
+  },
+  "dependencies": {
+    "vite": "^6.3.5",
+    "mind-port": "file:../mind-port-0.1.0.tgz"
+  },
+  "devDependencies": {}
+}

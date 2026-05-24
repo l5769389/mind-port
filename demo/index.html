@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MindPort Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="panel">
+        <div class="brand">
+          <span class="mark">MP</span>
+          <div>
+            <h1>MindPort</h1>
+            <p>XMind / ProcessOn parser and SVG renderer</p>
+          </div>
+        </div>
+
+        <label class="file-drop">
+          <input id="file-input" type="file" accept=".xmind,.pos,.json,application/json" />
+          <span>选择 .xmind / .pos 文件</span>
+        </label>
+
+        <div class="button-row">
+          <button id="sample-xmind" type="button">XMind 样例</button>
+          <button id="sample-processon" type="button">ProcessOn 样例</button>
+        </div>
+
+        <label class="field">
+          <span>渲染模式</span>
+          <select id="render-mode">
+            <option value="auto">auto</option>
+            <option value="semantic">semantic</option>
+            <option value="thumbnail">thumbnail</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>布局</span>
+          <select id="direction">
+            <option value="balanced">balanced</option>
+            <option value="right">right</option>
+            <option value="left">left</option>
+          </select>
+        </label>
+
+        <pre id="meta" class="meta"></pre>
+      </aside>
+
+      <section class="stage">
+        <div class="stage-toolbar">
+          <button id="zoom-out" type="button" title="缩小">-</button>
+          <output id="zoom-value">100%</output>
+          <button id="zoom-in" type="button" title="放大">+</button>
+          <button id="zoom-reset" type="button" title="适配画布">Reset</button>
+        </div>
+        <div id="svg-host" class="svg-host" tabindex="0"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/main.ts"></script>
+  </body>
+</html>

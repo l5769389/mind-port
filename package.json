@@ -1,0 +1,51 @@
+{
+  "name": "mind-port",
+  "version": "0.1.0",
+  "description": "Parse XMind and ProcessOn mind map files into a unified AST and render them to SVG.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --sourcemap --clean",
+    "test": "npm run build && node scripts/smoke-test.mjs",
+    "dev": "vite --host 127.0.0.1 demo",
+    "render:file": "npm run build && node scripts/render-file.mjs",
+    "pack:local": "npm run build && npm pack",
+    "preview:packed": "npm run pack:local && node scripts/prepare-packed-preview.mjs && npm --prefix preview-consumer install && npm --prefix preview-consumer run dev"
+  },
+  "keywords": [
+    "xmind",
+    "processon",
+    "mindmap",
+    "mind-map",
+    "svg",
+    "parser",
+    "renderer"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "fast-xml-parser": "^5.2.5",
+    "jszip": "^3.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}

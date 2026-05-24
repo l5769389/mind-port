@@ -1,0 +1,8 @@
+node_modules/
+dist/
+artifacts/
+*.tgz
+*.log
+.vite/
+preview-consumer/node_modules/
+preview-consumer/package-lock.json
