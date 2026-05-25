@@ -86,6 +86,7 @@ export function layoutMindSheet(sheet: MindSheet, options: RenderSvgOptions = {}
     applyExplicitTopicPositions(sheet.root, nodes, byId, root, options.preserveAttachedPositions);
   }
   const rootPosition = sheet.root.position ?? { x: 0, y: 0 };
+  const preserveFloatingPositions = shouldPreserveFloatingPositions(sheet);
 
   for (const floatingTopic of sheet.floatingTopics ?? []) {
     const floatingLayout = layoutMindMap(floatingTopic, {
@@ -110,23 +111,33 @@ export function layoutMindSheet(sheet: MindSheet, options: RenderSvgOptions = {}
       y: positioned.y + deltaY,
       side: positioned.depth === 0 ? "right" as const : positioned.side
     }));
-    const floatingShiftY = chooseDescendantShiftY(
-      positionedFloatingNodes,
-      nodes,
-      48,
-      360,
-      targetY >= root.y ? "down" : "up"
-    );
+    const floatingShiftY = preserveFloatingPositions
+      ? 0
+      : chooseDescendantShiftY(
+          positionedFloatingNodes,
+          nodes,
+          48,
+          360,
+          targetY >= root.y ? "down" : "up"
+        );
     const shiftedNodes = positionedFloatingNodes.map(positioned => ({
       ...positioned,
       y: positioned.y + floatingShiftY
     }));
     const floatingRootNode = shiftedNodes.find(positioned => positioned.node.id === floatingTopic.id);
     const descendantNodes = shiftedNodes.filter(positioned => positioned.node.id !== floatingTopic.id);
-    const descendantShiftY = chooseDescendantShiftY(descendantNodes, [
-      ...nodes,
-      ...(floatingRootNode ? [floatingRootNode] : [])
-    ]);
+    const descendantShiftY = chooseDescendantShiftY(
+      descendantNodes,
+      [
+        ...nodes,
+        ...(floatingRootNode ? [floatingRootNode] : [])
+      ],
+      preserveFloatingPositions ? 28 : 8,
+      preserveFloatingPositions ? 360 : 240,
+      preserveFloatingPositions
+        ? targetY >= root.y ? "down" : "up"
+        : "any"
+    );
 
     for (const positioned of shiftedNodes) {
       if (byId.has(positioned.node.id)) {
@@ -142,6 +153,14 @@ export function layoutMindSheet(sheet: MindSheet, options: RenderSvgOptions = {}
   }
 
   return normalizeLayout(nodes, config.padding);
+}
+
+function shouldPreserveFloatingPositions(sheet: MindSheet): boolean {
+  const floatingTopics = sheet.floatingTopics ?? [];
+  const positionedFloatingTopics = floatingTopics.filter(topic => topic.position).length;
+  const relationshipCount = sheet.relationships?.length ?? 0;
+
+  return positionedFloatingTopics >= 4 || relationshipCount >= 6;
 }
 
 function inferDirection(sheet: MindSheet): MindLayoutDirection {

@@ -11,7 +11,7 @@ const document = await parseMindFile(bytes, { fileName: inputName });
 const semanticBaseOptions = {
   padding: 80,
   renderMode: "semantic",
-  preserveAttachedPositions: "none"
+  preserveAttachedPositions: "top-level"
 };
 const cleanSvg = renderToSvg(document, {
   ...semanticBaseOptions,
@@ -75,15 +75,15 @@ if (hasEmbeddedThumbnail) {
 }
 
 const htmlVariants = [
-  ...(thumbnailSvg ? [{ id: "thumbnail", label: "官方内嵌预览", svg: thumbnailSvg }] : []),
   { id: "xmind", label: "语义渲染：XMind 风格（默认隐藏关系线）", svg: xmindSvg },
-  { id: "xmind-relationship", label: "XMind 风格（显示关系线）", svg: xmindRelationshipSvg },
-  { id: "xmind-no-boundary", label: "XMind 风格（无边界灰底）", svg: xmindNoBoundarySvg },
-  { id: "xmind-bg", label: "XMind 风格（补全灰底）", svg: xmindBackgroundSvg },
-  { id: "clean", label: "语义渲染：清晰结构", svg: cleanSvg }
+  { id: "xmind-relationship", label: "语义渲染：XMind 风格（显示关系线）", svg: xmindRelationshipSvg },
+  { id: "xmind-no-boundary", label: "语义渲染：XMind 风格（无边界背景）", svg: xmindNoBoundarySvg },
+  { id: "xmind-bg", label: "语义渲染：XMind 风格（补全灰底）", svg: xmindBackgroundSvg },
+  { id: "clean", label: "语义渲染：清晰结构", svg: cleanSvg },
+  ...(thumbnailSvg ? [{ id: "thumbnail", label: "官方内嵌预览", svg: thumbnailSvg }] : [])
 ];
 
-await writeFile(htmlPath, makeHtml(inputName, htmlVariants, thumbnailSvg ? "thumbnail" : "xmind"));
+await writeFile(htmlPath, makeHtml(inputName, htmlVariants, defaultVariantFor(document)));
 
 const sheet = document.sheets[0];
 console.log(JSON.stringify({
@@ -127,6 +127,11 @@ async function latestDownloadsXMind() {
 
 function countNodes(node) {
   return 1 + node.children.reduce((sum, child) => sum + countNodes(child), 0);
+}
+
+function defaultVariantFor(document) {
+  const relationshipCount = document.sheets[0]?.relationships?.length ?? 0;
+  return relationshipCount >= 6 ? "xmind-relationship" : "xmind";
 }
 
 function makeHtml(title, variants, defaultVariant) {

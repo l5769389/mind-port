@@ -68,7 +68,7 @@ function renderSemanticSvg(document: MindDocument, options: RenderSvgOptions = {
   const layout = layoutMindSheet(sheet, options);
   const background = sheet.style?.fill ?? theme.background;
   const renderTheme = adaptThemeToBackground(theme, background);
-  const renderSettings = resolveRenderSettings(options);
+  const renderSettings = resolveRenderSettings(options, sheet);
   const fontFamily = options.fontFamily ?? "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
   const canvasWidth = layout.width + getSummaryCanvasPadding(sheet.root);
   const boundaries = renderBoundaries(layout, sheet.root, renderSettings);
@@ -185,6 +185,16 @@ function renderGroupBackgrounds(layout: MindLayout, root: MindNode, settings: Re
 }
 
 function renderBoundaryBackground(nodes: PositionedMindNode[], boundary: MindBoundary, index: number, settings: RenderSettings): string {
+  const properties = getBoundaryStyleProperties(boundary);
+  const fillPattern = String(properties["fill-pattern"] ?? "");
+  const linePattern = String(properties["line-pattern"] ?? "");
+  const shape = String(properties["shape-class"] ?? "");
+  const isSolidBoundary = fillPattern === "solid" || shape.includes("boundaryShape");
+
+  if (isSolidBoundary && !fillPattern.includes("hand") && !linePattern.includes("hand")) {
+    return renderSolidBoundary(nodes, boundary, index, settings, properties);
+  }
+
   return renderRoughBackground(nodes, index, {
     dataAttribute: `data-boundary-id="${escapeAttr(boundary.id)}"`,
     fill: boundary.style?.fill ?? "#D2D2D2",
@@ -193,6 +203,73 @@ function renderBoundaryBackground(nodes: PositionedMindNode[], boundary: MindBou
     paddingX: 20,
     paddingY: 12
   });
+}
+
+function renderSolidBoundary(
+  nodes: PositionedMindNode[],
+  boundary: MindBoundary,
+  index: number,
+  settings: RenderSettings,
+  properties: Record<string, unknown>
+): string {
+  const paddingX = 20;
+  const paddingY = 12;
+  const bounds = nodes.map(node => estimateNodeVisualBounds(node));
+  const minX = Math.min(...bounds.map(bound => bound.minX)) - paddingX;
+  const maxX = Math.max(...bounds.map(bound => bound.maxX)) + paddingX;
+  const minY = Math.min(...bounds.map(bound => bound.minY)) - paddingY;
+  const maxY = Math.max(...bounds.map(bound => bound.maxY)) + paddingY;
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const stroke = getStyleString(properties["line-color"]) ?? boundary.style?.stroke ?? "#94a3b8";
+  const strokeWidth = parseSvgSize(properties["line-width"]) ?? boundary.style?.strokeWidth ?? 2;
+  const dash = String(properties["line-pattern"] ?? "").includes("dash") ? ` stroke-dasharray="9 7"` : "";
+  const rx = String(properties["shape-class"] ?? "").includes("rounded") ? 8 : 0;
+  const fill = boundary.style?.fill && boundary.style.fill !== "transparent"
+    ? boundary.style.fill
+    : "transparent";
+  const fillOpacity = fill === "transparent" ? 0 : Math.min(settings.boundaryOpacity, 0.12);
+  const title = boundary.title ? renderBoundaryTitle(boundary.title, minX, minY, stroke, index) : "";
+
+  return `<g data-boundary-id="${escapeAttr(boundary.id)}">
+    <rect x="${round(minX)}" y="${round(minY)}" width="${round(width)}" height="${round(height)}" rx="${round(rx)}" fill="${escapeAttr(fill)}" fill-opacity="${round(fillOpacity)}" stroke="${escapeAttr(stroke)}" stroke-width="${round(strokeWidth)}"${dash}/>
+    ${title}
+  </g>`;
+}
+
+function renderBoundaryTitle(title: string, minX: number, minY: number, stroke: string, index: number): string {
+  const fontSize = 12;
+  const labelWidth = Math.max(92, estimateLabelWidth(title, fontSize) + 20);
+  const labelHeight = 24;
+  const x = minX + 16;
+  const y = minY - labelHeight + 2;
+  const fill = isDarkColor(stroke) ? "#ffffff" : stroke;
+  const textFill = isDarkColor(fill) ? "#ffffff" : "#172033";
+  const clipId = `mind-port-boundary-title-${index}`;
+
+  return `<g data-boundary-title>
+      <clipPath id="${clipId}"><rect x="${round(x)}" y="${round(y)}" width="${round(labelWidth)}" height="${round(labelHeight)}" rx="5"/></clipPath>
+      <rect x="${round(x)}" y="${round(y)}" width="${round(labelWidth)}" height="${round(labelHeight)}" rx="5" fill="${escapeAttr(fill)}" opacity="0.92"/>
+      <text x="${round(x + labelWidth / 2)}" y="${round(y + 16)}" text-anchor="middle" fill="${escapeAttr(textFill)}" font-size="${fontSize}" font-weight="500" clip-path="url(#${clipId})">${escapeText(title)}</text>
+    </g>`;
+}
+
+function getBoundaryStyleProperties(boundary: MindBoundary): Record<string, unknown> {
+  const raw = boundary.style?.raw ?? boundary.raw;
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+
+  if ("properties" in raw) {
+    const properties = (raw as { properties?: unknown }).properties;
+    return properties && typeof properties === "object" ? properties as Record<string, unknown> : {};
+  }
+
+  if ("style" in raw) {
+    return getStyleProperties(raw);
+  }
+
+  return {};
 }
 
 type RoughBackgroundOptions = {
@@ -474,7 +551,7 @@ function renderRelationships(layout: MindLayout, relationships: MindRelationship
       const linePattern = String(properties["line-pattern"] ?? "");
       const shapeClass = String(properties["shape-class"] ?? "");
       const dashed = linePattern.includes("dash");
-      const stroke = getStyleString(properties["line-color"]) ?? (isXMindStyle ? "#111827" : theme.relationship);
+      const stroke = getStyleString(properties["line-color"]) ?? theme.relationship;
       const strokeWidth = parseSvgSize(properties["line-width"]) ?? (isXMindStyle ? 2 : 2.2);
       const dashAttr = dashed ? ` stroke-dasharray="${isXMindStyle ? "8 7" : "7 5"}"` : "";
       const label = relationship.title
@@ -1186,12 +1263,36 @@ function resolveTheme(theme: RenderSvgOptions["theme"]): RenderTheme {
   };
 }
 
-function resolveRenderSettings(options: RenderSvgOptions): RenderSettings {
+function resolveRenderSettings(options: RenderSvgOptions, sheet?: MindDocument["sheets"][number]): RenderSettings {
   const preset = options.stylePreset === "xmind" ? XMIND_RENDER_SETTINGS : CLEAN_RENDER_SETTINGS;
-  return {
+  const settings = {
     ...preset,
     ...options.renderSettings
   };
+
+  if (
+    options.stylePreset === "xmind" &&
+    !options.renderSettings?.relationshipStyle &&
+    settings.relationshipStyle === "hidden" &&
+    isRelationshipDrivenSheet(sheet)
+  ) {
+    return {
+      ...settings,
+      relationshipStyle: "xmind"
+    };
+  }
+
+  return settings;
+}
+
+function isRelationshipDrivenSheet(sheet: MindDocument["sheets"][number] | undefined): boolean {
+  if (!sheet) {
+    return false;
+  }
+
+  const relationshipCount = sheet.relationships?.length ?? 0;
+  const positionedFloatingTopics = (sheet.floatingTopics ?? []).filter(topic => topic.position).length;
+  return relationshipCount >= 6 && positionedFloatingTopics >= 4;
 }
 
 function escapeText(value: string): string {

@@ -1,3 +1,5 @@
+import { readdir, readFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import JSZip from "jszip";
 import { parseMindFile, parseProcessOn, renderToSvg } from "../dist/index.js";
 
@@ -104,6 +106,27 @@ assert(svg.includes("Floating"), "SVG output is missing floating topic text.");
 const xmindSvg = renderToSvg(xmindDoc, { stylePreset: "xmind" });
 assert(xmindSvg.includes("data-boundary-id=\"boundary-1\""), "XMind boundary was not rendered.");
 assert(xmindSvg.includes("data-summary") && xmindSvg.includes("#6C6695"), "XMind summary style was not rendered.");
+
+const fixtureDir = resolve("fixtures/xmind");
+const fixtureNames = (await readdir(fixtureDir)).filter(name => name.toLowerCase().endsWith(".xmind"));
+assert(fixtureNames.length > 0, "No XMind fixtures were found.");
+
+for (const fixtureName of fixtureNames) {
+  const fixtureBytes = await readFile(join(fixtureDir, fixtureName));
+  const fixtureDoc = await parseMindFile(fixtureBytes, { fileName: fixtureName });
+  assert(fixtureDoc.sheets.length > 0, `${fixtureName}: no sheets parsed.`);
+
+  const semanticFixtureSvg = renderToSvg(fixtureDoc, {
+    renderMode: "semantic",
+    stylePreset: "xmind",
+    preserveAttachedPositions: "top-level"
+  });
+  assert(semanticFixtureSvg.includes("<svg"), `${fixtureName}: semantic SVG was not rendered.`);
+  assert(semanticFixtureSvg.includes("data-node-id="), `${fixtureName}: semantic SVG has no rendered nodes.`);
+
+  const thumbnailFixtureSvg = renderToSvg(fixtureDoc, { renderMode: "thumbnail" });
+  assert(thumbnailFixtureSvg.includes("<svg"), `${fixtureName}: thumbnail fallback SVG was not rendered.`);
+}
 
 console.log("smoke-test ok");
 

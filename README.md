@@ -72,11 +72,13 @@ Open the Vite URL, upload `.xmind` or `.pos`, or use the built-in samples. The d
 
 ## Render A Local File
 
-The helper below builds the package, reads the newest `.xmind` file in `C:/Users/Administrator/Downloads`, and writes HTML/SVG previews into `artifacts/`. When an XMind embedded thumbnail exists, the generated HTML defaults to that high-fidelity preview and keeps semantic SVG variants in the settings dropdown. The preview canvas supports drag panning, mouse-wheel zoom, zoom buttons, and reset-to-fit.
+The helper below builds the package, reads the newest `.xmind` file in `C:/Users/Administrator/Downloads`, and writes HTML/SVG previews into `artifacts/`. The generated HTML now defaults to semantic rendering; files that mainly use XMind relationships default to the semantic relationship variant. Embedded XMind thumbnails remain available in the settings dropdown as a high-fidelity reference. The preview canvas supports drag panning, mouse-wheel zoom, zoom buttons, and reset-to-fit.
 
 ```bash
 npm run render:file
 ```
+
+Real-world XMind fixtures are stored in `fixtures/xmind/` and are covered by `npm test` so renderer changes keep exercising the same sample files.
 
 You can also pass an explicit file path:
 
