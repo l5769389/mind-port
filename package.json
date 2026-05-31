@@ -11,19 +11,30 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
-    }
+    },
+    "./viewer": {
+      "types": "./dist/viewer.d.ts",
+      "import": "./dist/viewer.js",
+      "require": "./dist/viewer.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "mind-port": "./dist/cli.js"
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "package.json"
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --sourcemap --clean",
+    "build": "tsup src/index.ts src/viewer.ts src/cli.ts --format esm,cjs --dts --sourcemap --clean",
     "test": "npm run build && node scripts/smoke-test.mjs",
     "dev": "vite --host 127.0.0.1 demo",
     "render:file": "npm run build && node scripts/render-file.mjs",
+    "bench:visual": "npm run build && node scripts/render-benchmarks.mjs",
     "pack:local": "npm run build && npm pack",
     "preview:packed": "npm run pack:local && node scripts/prepare-packed-preview.mjs && npm --prefix preview-consumer install && npm --prefix preview-consumer run dev"
   },

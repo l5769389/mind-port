@@ -59,6 +59,11 @@ export async function inputToText(input: MindFileInput): Promise<string> {
     return input;
   }
 
+  if (input instanceof Uint8Array || input instanceof ArrayBuffer || (typeof Blob !== "undefined" && input instanceof Blob)) {
+    const bytes = await inputToUint8Array(input);
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+
   if (isRecord(input) || Array.isArray(input)) {
     return JSON.stringify(input);
   }

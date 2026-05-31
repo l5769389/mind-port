@@ -1,0 +1,11 @@
+{
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "mind-port": "file:../..",
+    "vite": "^6.3.5"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1"
+  }
+}

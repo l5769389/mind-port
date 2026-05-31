@@ -1,5 +1,16 @@
 export type MindSourceFormat = "xmind" | "processon" | "auto";
 
+export type DiagramSourceFormat = "processon" | "auto";
+
+export type MindPortCompatibilityMode = "preview" | "semantic" | "editable";
+
+export type MindPortWarning = {
+  code: string;
+  message: string;
+  path?: string;
+  severity?: "info" | "warning";
+};
+
 export type MindLayoutDirection = "balanced" | "right" | "left";
 
 export type MindAsset = {
@@ -136,6 +147,118 @@ export type RenderSettings = {
   groupBackgroundOpacity: number;
   relationshipStyle: "clean" | "xmind" | "hidden";
 };
+
+export type DiagramPoint = {
+  x: number;
+  y: number;
+};
+
+export type DiagramStyle = {
+  fill?: string;
+  stroke?: string;
+  strokeWidth?: number;
+  color?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  fontWeight?: string | number;
+  dashed?: boolean;
+  opacity?: number;
+  arrowStart?: string;
+  arrowEnd?: string;
+  raw?: unknown;
+};
+
+export type DiagramShapeKind =
+  | "rectangle"
+  | "roundRectangle"
+  | "ellipse"
+  | "diamond"
+  | "parallelogram"
+  | "hexagon"
+  | "swimlane"
+  | "container"
+  | "image"
+  | "text"
+  | "unknown";
+
+export type DiagramShape = {
+  id: string;
+  title: string;
+  kind: DiagramShapeKind;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  parentId?: string;
+  image?: string;
+  style?: DiagramStyle;
+  raw?: unknown;
+};
+
+export type DiagramConnector = {
+  id: string;
+  from?: string;
+  to?: string;
+  title?: string;
+  points: DiagramPoint[];
+  style?: DiagramStyle;
+  raw?: unknown;
+};
+
+export type DiagramPage = {
+  id: string;
+  title: string;
+  width?: number;
+  height?: number;
+  background?: string;
+  shapes: DiagramShape[];
+  connectors: DiagramConnector[];
+  raw?: unknown;
+};
+
+export type DiagramDocument = {
+  sourceFormat: Exclude<DiagramSourceFormat, "auto">;
+  pages: DiagramPage[];
+  assets?: Record<string, MindAsset>;
+  raw?: unknown;
+};
+
+export type ParseDiagramOptions = {
+  format?: DiagramSourceFormat;
+  fileName?: string;
+};
+
+export type RenderDiagramOptions = {
+  pageIndex?: number;
+  padding?: number;
+  fontFamily?: string;
+  includeXmlDeclaration?: boolean;
+  theme?: "default" | "ink" | Partial<RenderTheme>;
+};
+
+export type MindPortDocument =
+  | {
+      kind: "mind";
+      document: MindDocument;
+      warnings?: MindPortWarning[];
+    }
+  | {
+      kind: "diagram";
+      document: DiagramDocument;
+      warnings?: MindPortWarning[];
+    };
+
+export type ParseFileOptions = {
+  format?: MindSourceFormat;
+  fileName?: string;
+  kind?: "auto" | "mind" | "diagram";
+};
+
+export type RenderDocumentOptions = RenderSvgOptions & RenderDiagramOptions & {
+  compatibilityMode?: MindPortCompatibilityMode;
+};
+
+export type RenderFileOptions = ParseFileOptions & RenderDocumentOptions;
 
 export type PositionedMindNode = {
   node: MindNode;

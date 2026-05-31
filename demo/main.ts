@@ -1,5 +1,15 @@
 import JSZip from "jszip";
-import { parseMindFile, renderToSvg, type MindDocument, type MindLayoutDirection, type MindNode, type RenderSvgOptions } from "../src";
+import {
+  parseDiagramFile,
+  parseMindFile,
+  renderDiagramToSvg,
+  renderToSvg,
+  type DiagramDocument,
+  type MindDocument,
+  type MindLayoutDirection,
+  type MindNode,
+  type RenderSvgOptions
+} from "../src";
 
 const input = requiredElement<HTMLInputElement>("#file-input");
 const xmindButton = requiredElement<HTMLButtonElement>("#sample-xmind");
@@ -13,7 +23,9 @@ const zoomReset = requiredElement<HTMLButtonElement>("#zoom-reset");
 const zoomValue = requiredElement<HTMLOutputElement>("#zoom-value");
 const meta = requiredElement<HTMLPreElement>("#meta");
 
-let currentDocument: MindDocument | undefined;
+let currentMindDocument: MindDocument | undefined;
+let currentDiagramDocument: DiagramDocument | undefined;
+let currentFileName = "";
 let scale = 1;
 let translateX = 0;
 let translateY = 0;
@@ -43,7 +55,7 @@ xmindButton.addEventListener("click", async () => {
 });
 
 processOnButton.addEventListener("click", async () => {
-  await loadDocument(JSON.stringify(createSampleProcessOn(), null, 2), "sample.pos");
+  await loadDocument(JSON.stringify(createSampleProcessOnDiagram(), null, 2), "sample.pos", "diagram");
 });
 
 renderModeSelect.addEventListener("change", () => renderCurrent());
@@ -88,12 +100,29 @@ if ("ResizeObserver" in window) {
   new ResizeObserver(fitView).observe(svgHost);
 }
 
-void loadDocument(JSON.stringify(createSampleProcessOn(), null, 2), "sample.pos");
+void loadDocument(JSON.stringify(createSampleProcessOnMind(), null, 2), "sample.pos");
 
-async function loadDocument(inputData: Blob | ArrayBuffer | string, fileName: string): Promise<void> {
+async function loadDocument(inputData: Blob | ArrayBuffer | string, fileName: string, preferred: "auto" | "diagram" = "auto"): Promise<void> {
   try {
     meta.textContent = "Parsing...";
-    currentDocument = await parseMindFile(inputData, { fileName });
+    currentFileName = fileName;
+    currentMindDocument = undefined;
+    currentDiagramDocument = undefined;
+
+    if (preferred === "diagram") {
+      currentDiagramDocument = await parseDiagramFile(inputData, { fileName });
+    } else {
+      try {
+        currentMindDocument = await parseMindFile(inputData, { fileName });
+      } catch (mindError) {
+        try {
+          currentDiagramDocument = await parseDiagramFile(inputData, { fileName });
+        } catch {
+          throw mindError;
+        }
+      }
+    }
+
     renderCurrent();
   } catch (error) {
     svgHost.innerHTML = `<div class="empty">解析失败</div>`;
@@ -102,31 +131,84 @@ async function loadDocument(inputData: Blob | ArrayBuffer | string, fileName: st
 }
 
 function renderCurrent(): void {
-  if (!currentDocument) {
+  if (currentDiagramDocument) {
+    renderDiagramCurrent();
+    return;
+  }
+
+  if (!currentMindDocument) {
     return;
   }
 
   const direction = directionSelect.value as MindLayoutDirection;
-  const renderMode = renderModeSelect.value as NonNullable<RenderSvgOptions["renderMode"]>;
-  const svg = renderToSvg(currentDocument, {
+  const renderMode = renderModeSelect.value as NonNullable<RenderSvgOptions["renderMode"]> | "compare";
+  const baseOptions = {
     direction,
-    padding: renderMode === "thumbnail" ? 0 : 56,
-    renderMode,
-    stylePreset: "xmind"
-  });
-  svgHost.innerHTML = `<div class="canvas-content">${svg}</div>`;
+    stylePreset: "xmind" as const,
+    preserveAttachedPositions: "top-level" as const
+  };
+
+  if (renderMode === "compare") {
+    const semanticSvg = renderToSvg(currentMindDocument, {
+      ...baseOptions,
+      padding: 56,
+      renderMode: "semantic"
+    });
+    const thumbnailSvg = renderToSvg(currentMindDocument, {
+      padding: 0,
+      renderMode: "thumbnail"
+    });
+    svgHost.innerHTML = `<div class="canvas-content compare-content">
+      <section class="compare-panel"><h2>语义渲染</h2>${semanticSvg}</section>
+      <section class="compare-panel"><h2>官方缩略图</h2>${thumbnailSvg}</section>
+    </div>`;
+  } else {
+    const svg = renderToSvg(currentMindDocument, {
+      ...baseOptions,
+      direction,
+      padding: renderMode === "thumbnail" ? 0 : 56,
+      renderMode
+    });
+    svgHost.innerHTML = `<div class="canvas-content">${svg}</div>`;
+  }
+
   requestAnimationFrame(fitView);
 
-  const sheet = currentDocument.sheets[0];
+  const sheet = currentMindDocument.sheets[0];
   meta.textContent = JSON.stringify({
-    sourceFormat: currentDocument.sourceFormat,
+    fileName: currentFileName,
+    kind: "mind",
+    sourceFormat: currentMindDocument.sourceFormat,
     renderMode,
-    sheets: currentDocument.sheets.length,
+    sheets: currentMindDocument.sheets.length,
     activeSheet: sheet?.title,
     root: sheet?.root.title,
     nodes: sheet ? countNodes(sheet.root) : 0,
     floatingTopics: sheet?.floatingTopics?.length ?? 0,
     relationships: sheet?.relationships?.length ?? 0
+  }, null, 2);
+}
+
+function renderDiagramCurrent(): void {
+  if (!currentDiagramDocument) {
+    return;
+  }
+
+  const svg = renderDiagramToSvg(currentDiagramDocument, {
+    padding: 56
+  });
+  svgHost.innerHTML = `<div class="canvas-content">${svg}</div>`;
+  requestAnimationFrame(fitView);
+
+  const page = currentDiagramDocument.pages[0];
+  meta.textContent = JSON.stringify({
+    fileName: currentFileName,
+    kind: "diagram",
+    sourceFormat: currentDiagramDocument.sourceFormat,
+    pages: currentDiagramDocument.pages.length,
+    activePage: page?.title,
+    shapes: page?.shapes.length ?? 0,
+    connectors: page?.connectors.length ?? 0
   }, null, 2);
 }
 
@@ -141,11 +223,38 @@ function canvasContent(): HTMLDivElement | undefined {
   return svgHost.querySelector<HTMLDivElement>(".canvas-content") ?? undefined;
 }
 
-function activeSvg(): SVGSVGElement | undefined {
-  return svgHost.querySelector<SVGSVGElement>("svg") ?? undefined;
+function fitView(): void {
+  const content = canvasContent();
+  if (!content) {
+    return;
+  }
+
+  const rect = svgHost.getBoundingClientRect();
+  const size = contentSize(content);
+  scale = clampScale(Math.min(1, (rect.width - 48) / size.width, (rect.height - 48) / size.height));
+  translateX = (rect.width - size.width * scale) / 2;
+  translateY = (rect.height - size.height * scale) / 2;
+  applyTransform();
 }
 
-function svgSize(svg: SVGSVGElement | undefined): { width: number; height: number } {
+function contentSize(content: HTMLDivElement): { width: number; height: number } {
+  const svgs = Array.from(content.querySelectorAll<SVGSVGElement>("svg"));
+  if (!svgs.length) {
+    return { width: 1, height: 1 };
+  }
+
+  if (content.classList.contains("compare-content")) {
+    const sizes = svgs.map(svgIntrinsicSize);
+    return {
+      width: sizes.reduce((sum, size) => sum + size.width, 0) + Math.max(0, sizes.length - 1) * 24,
+      height: Math.max(...sizes.map(size => size.height)) + 42
+    };
+  }
+
+  return svgIntrinsicSize(svgs[0]);
+}
+
+function svgIntrinsicSize(svg: SVGSVGElement | undefined): { width: number; height: number } {
   if (!svg) {
     return { width: 1, height: 1 };
   }
@@ -158,21 +267,6 @@ function svgSize(svg: SVGSVGElement | undefined): { width: number; height: numbe
     width: Number(svg.getAttribute("width")) || viewBoxWidth || svg.getBoundingClientRect().width || 1,
     height: Number(svg.getAttribute("height")) || viewBoxHeight || svg.getBoundingClientRect().height || 1
   };
-}
-
-function fitView(): void {
-  const svg = activeSvg();
-  const content = canvasContent();
-  if (!svg || !content) {
-    return;
-  }
-
-  const rect = svgHost.getBoundingClientRect();
-  const size = svgSize(svg);
-  scale = clampScale(Math.min(1, (rect.width - 48) / size.width, (rect.height - 48) / size.height));
-  translateX = (rect.width - size.width * scale) / 2;
-  translateY = (rect.height - size.height * scale) / 2;
-  applyTransform();
 }
 
 function applyTransform(): void {
@@ -254,7 +348,7 @@ async function createSampleXMind(): Promise<ArrayBuffer> {
   return zip.generateAsync({ type: "arraybuffer" });
 }
 
-function createSampleProcessOn(): object {
+function createSampleProcessOnMind(): object {
   return {
     title: "ProcessOn MVP",
     root: {
@@ -290,6 +384,65 @@ function createSampleProcessOn(): object {
     },
     relationships: [
       { id: "rel-1", from: "processon", to: "npm", title: "统一 AST" }
+    ]
+  };
+}
+
+function createSampleProcessOnDiagram(): object {
+  return {
+    title: "ProcessOn 流程图样例",
+    nodes: [
+      {
+        id: "start",
+        text: "开始",
+        x: 80,
+        y: 80,
+        width: 120,
+        height: 48,
+        style: "shape=roundRect;rounded=1;fillColor=#E8F7FF;strokeColor=#2878D7;fontSize=14"
+      },
+      {
+        id: "review",
+        text: "资料审核",
+        x: 280,
+        y: 72,
+        width: 150,
+        height: 64,
+        style: "shape=rect;fillColor=#FFFFFF;strokeColor=#667085;fontSize=14"
+      },
+      {
+        id: "decision",
+        text: "是否通过",
+        x: 520,
+        y: 66,
+        width: 110,
+        height: 76,
+        shape: "diamond",
+        style: "fillColor=#FFF7E6;strokeColor=#D9822B;fontSize=14"
+      },
+      {
+        id: "publish",
+        text: "发布结果",
+        x: 760,
+        y: 72,
+        width: 150,
+        height: 64,
+        style: "shape=roundRect;rounded=1;fillColor=#EAF8EF;strokeColor=#2F9E44;fontSize=14"
+      },
+      {
+        id: "retry",
+        text: "补充材料",
+        x: 500,
+        y: 220,
+        width: 150,
+        height: 58,
+        style: "shape=rect;fillColor=#FFF0F0;strokeColor=#D64545;fontSize=14"
+      },
+      { id: "e1", edge: true, source: "start", target: "review", text: "提交", style: "strokeColor=#667085;endArrow=block" },
+      { id: "e2", edge: true, source: "review", target: "decision", style: "strokeColor=#667085;endArrow=block" },
+      { id: "e3", edge: true, source: "decision", target: "publish", text: "是", style: "strokeColor=#2F9E44;endArrow=block" },
+      { id: "e4", edge: true, source: "decision", target: "retry", text: "否", style: "strokeColor=#D64545;dashed=1;endArrow=block" },
+      { id: "e5", edge: true, source: "retry", target: "review", style: "strokeColor=#D64545;dashed=1;endArrow=block" }
     ]
   };
 }

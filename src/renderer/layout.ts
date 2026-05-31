@@ -36,6 +36,14 @@ export function layoutMindMap(root: MindNode, options: RenderSvgOptions = {}): M
     return layoutFishboneRight(root, config);
   }
 
+  if (isOrgChartDown(root)) {
+    return layoutOrgChartDown(root, config);
+  }
+
+  if (isTimelineThroughVertical(root)) {
+    return layoutTimelineVertical(root, config);
+  }
+
   const nodes: PositionedMindNode[] = [];
   const byId = new Map<string, PositionedMindNode>();
   const rootMeasured = measureNode(root, config);
@@ -189,6 +197,24 @@ function isFishboneRightHeaded(root: MindNode): boolean {
   return structure.includes("fishbone.rightHeaded");
 }
 
+function isOrgChartDown(root: MindNode): boolean {
+  const raw = root.raw;
+  const structure = typeof raw === "object" && raw !== null && "structureClass" in raw
+    ? String((raw as { structureClass?: unknown }).structureClass ?? "")
+    : "";
+
+  return structure.includes("org-chart.down");
+}
+
+function isTimelineThroughVertical(root: MindNode): boolean {
+  const raw = root.raw;
+  const structure = typeof raw === "object" && raw !== null && "structureClass" in raw
+    ? String((raw as { structureClass?: unknown }).structureClass ?? "")
+    : "";
+
+  return structure.includes("timeline.through.vertical");
+}
+
 function inferRootArrangement(root: MindNode): LayoutConfig["rootArrangement"] {
   const raw = root.raw;
   const structure = typeof raw === "object" && raw !== null && "structureClass" in raw
@@ -226,6 +252,135 @@ function layoutFishboneRight(root: MindNode, config: LayoutConfig): MindLayout {
   });
 
   return normalizeLayout(nodes, config.padding);
+}
+
+function layoutOrgChartDown(root: MindNode, config: LayoutConfig): MindLayout {
+  const nodes: PositionedMindNode[] = [];
+  const byId = new Map<string, PositionedMindNode>();
+  const rootMeasured = measureNode(root, config);
+  const rootPositioned = placeNode(rootMeasured, undefined, 0, "root", 0, 0);
+  nodes.push(rootPositioned);
+  byId.set(root.id, rootPositioned);
+
+  const gapY = Math.max(76, config.verticalGap * 3.2);
+  placeDownChildren(root, rootPositioned, config, gapY, nodes, byId);
+
+  return normalizeLayout(nodes, config.padding);
+}
+
+function placeDownChildren(
+  node: MindNode,
+  parent: PositionedMindNode,
+  config: LayoutConfig,
+  gapY: number,
+  nodes: PositionedMindNode[],
+  byId: Map<string, PositionedMindNode>
+): void {
+  const children = node.children ?? [];
+  if (!children.length || node.collapsed) {
+    return;
+  }
+
+  const childGap = Math.max(32, config.horizontalGap * 0.42);
+  const subtreeWidths = children.map(child => measureDownSubtreeWidth(child, config));
+  const totalWidth = subtreeWidths.reduce((sum, width) => sum + width, 0) + Math.max(0, children.length - 1) * childGap;
+  let cursorX = parent.x - totalWidth / 2;
+  const childY = parent.y + parent.height / 2 + gapY;
+
+  children.forEach((child, index) => {
+    const measured = measureNode(child, config);
+    const subtreeWidth = subtreeWidths[index] ?? measured.width;
+    const childX = cursorX + subtreeWidth / 2;
+    const positioned = placeNode(measured, parent.node.id, parent.depth + 1, "right", childX, childY + measured.height / 2);
+    nodes.push(positioned);
+    byId.set(child.id, positioned);
+    placeDownChildren(child, positioned, config, Math.max(58, config.verticalGap * 2.6), nodes, byId);
+    cursorX += subtreeWidth + childGap;
+  });
+}
+
+function measureDownSubtreeWidth(node: MindNode, config: LayoutConfig): number {
+  const measured = measureNode(node, config);
+  if (!node.children.length || node.collapsed) {
+    return measured.width;
+  }
+
+  const childGap = Math.max(32, config.horizontalGap * 0.42);
+  const childrenWidth = node.children
+    .map(child => measureDownSubtreeWidth(child, config))
+    .reduce((sum, width) => sum + width, 0) + Math.max(0, node.children.length - 1) * childGap;
+
+  return Math.max(measured.width, childrenWidth);
+}
+
+function layoutTimelineVertical(root: MindNode, config: LayoutConfig): MindLayout {
+  const nodes: PositionedMindNode[] = [];
+  const byId = new Map<string, PositionedMindNode>();
+  const rootMeasured = measureNode(root, {
+    ...config,
+    nodeMaxWidth: Math.max(config.nodeMaxWidth, 420)
+  });
+  const rootPositioned = placeNode(rootMeasured, undefined, 0, "root", 0, 0);
+  nodes.push(rootPositioned);
+  byId.set(root.id, rootPositioned);
+
+  const mainTopics = root.children ?? [];
+  const rowGap = Math.max(120, config.verticalGap * 5.2);
+  const sideOffset = Math.max(230, config.horizontalGap * 2.25);
+  let cursorY = rootMeasured.height / 2 + rowGap;
+
+  mainTopics.forEach((topic, index) => {
+    const side = index % 2 === 0 ? "right" as const : "left" as const;
+    const measured = measureNode(topic, config);
+    const x = side === "right" ? sideOffset : -sideOffset;
+    const positioned = placeNode(measured, root.id, 1, side, x, cursorY);
+    nodes.push(positioned);
+    byId.set(topic.id, positioned);
+
+    placeTimelineChildren(topic, positioned, side, config, nodes, byId);
+    cursorY += Math.max(rowGap, measureTimelineRowHeight(topic, config));
+  });
+
+  return normalizeLayout(nodes, config.padding);
+}
+
+function placeTimelineChildren(
+  topic: MindNode,
+  parent: PositionedMindNode,
+  side: "left" | "right",
+  config: LayoutConfig,
+  nodes: PositionedMindNode[],
+  byId: Map<string, PositionedMindNode>
+): void {
+  const children = topic.children ?? [];
+  if (!children.length || topic.collapsed) {
+    return;
+  }
+
+  const subtreeHeights = children.map(child => measureSubtreeHeight(child, config));
+  const totalHeight = subtreeHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, children.length - 1) * config.verticalGap;
+  let cursorY = parent.y - totalHeight / 2;
+  const childXAnchor = side === "right"
+    ? parent.x + parent.width / 2 + Math.max(70, config.horizontalGap * 0.8)
+    : parent.x - parent.width / 2 - Math.max(70, config.horizontalGap * 0.8);
+
+  children.forEach((child, index) => {
+    const childHeight = subtreeHeights[index] ?? 0;
+    const childCenterY = cursorY + childHeight / 2;
+    placeSubtree(child, parent.node.id, parent.depth + 1, side, childXAnchor, childCenterY, config, nodes, byId);
+    cursorY += childHeight + config.verticalGap;
+  });
+}
+
+function measureTimelineRowHeight(topic: MindNode, config: LayoutConfig): number {
+  if (!topic.children.length || topic.collapsed) {
+    return Math.max(110, measureNode(topic, config).height + config.verticalGap * 2);
+  }
+
+  return Math.max(
+    130,
+    measureSubtreeHeight(topic, config) + config.verticalGap
+  );
 }
 
 function placeFishboneLeaves(

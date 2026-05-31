@@ -184,6 +184,24 @@ select:hover {
   will-change: transform;
 }
 
+.compare-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.compare-panel {
+  margin: 0;
+}
+
+.compare-panel h2 {
+  height: 34px;
+  margin: 0 0 8px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .canvas-content svg {
   display: block;
   width: auto;

@@ -1,19 +1,28 @@
-import { parseProcessOn, renderToSvg } from "mind-port";
+import { parseFile } from "mind-port";
+import { createMindPortViewer } from "mind-port/viewer";
 
-const doc = await parseProcessOn({
-  title: "Packed package preview",
-  root: {
-    id: "root",
-    text: "mind-port npm tarball",
-    children: [
-      { id: "parse", text: "parseProcessOn()" },
-      { id: "render", text: "renderToSvg()" },
-      { id: "consumer", text: "外部项目可直接导入" }
-    ]
-  }
+bootstrap().catch(error => {
+  document.querySelector("#app").textContent = error instanceof Error ? error.message : String(error);
 });
 
-document.querySelector("#app").innerHTML = renderToSvg(doc, {
-  direction: "right",
-  padding: 64
-});
+async function bootstrap() {
+  const parsed = await parseFile({
+    title: "Packed package preview",
+    root: {
+      id: "root",
+      text: "mind-port npm tarball",
+      children: [
+        { id: "parse", text: "parseFile()" },
+        { id: "render", text: "renderDocumentToSvg()" },
+        { id: "viewer", text: "mind-port/viewer" }
+      ]
+    }
+  }, { fileName: "packed-preview.pos" });
+
+  createMindPortViewer(document.querySelector("#app"), parsed, {
+    compatibilityMode: "semantic",
+    stylePreset: "xmind",
+    controls: true,
+    padding: 64
+  });
+}

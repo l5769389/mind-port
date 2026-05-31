@@ -432,6 +432,14 @@ function renderConnectors(layout: MindLayout, theme: RenderTheme, settings: Rend
     return renderFishboneConnectors(layout, root, theme, settings);
   }
 
+  if (root && isOrgChartDown(root.node)) {
+    return renderOrgChartConnectors(layout, root, theme, settings);
+  }
+
+  if (root && isTimelineThroughVertical(root.node)) {
+    return renderTimelineConnectors(layout, root, theme, settings);
+  }
+
   return layout.nodes
     .filter(node => node.parentId)
     .map(node => renderDefaultConnector(layout, node, theme, settings))
@@ -492,6 +500,61 @@ function renderFishboneConnectors(layout: MindLayout, root: PositionedMindNode, 
       const startX = node.x + node.width / 2;
       const endX = Math.max(startX + 12, fishboneRibXAtY(rib, node.y));
       parts.push(`<path d="M ${round(startX)} ${round(node.y)} L ${round(endX)} ${round(node.y)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(2 * settings.connectorScale)}" stroke-linecap="round"/>`);
+      continue;
+    }
+
+    parts.push(renderDefaultConnector(layout, node, theme, settings));
+  }
+
+  return parts.join("\n  ");
+}
+
+function renderOrgChartConnectors(layout: MindLayout, root: PositionedMindNode, theme: RenderTheme, settings: RenderSettings): string {
+  return layout.nodes
+    .filter(node => node.parentId)
+    .map(node => {
+      const parent = node.parentId ? layout.byId.get(node.parentId) : undefined;
+      if (!parent) {
+        return "";
+      }
+
+      const startX = parent.x;
+      const startY = parent.y + parent.height / 2;
+      const endX = node.x;
+      const endY = node.y - node.height / 2;
+      const midY = startY + Math.max(18, (endY - startY) * 0.48);
+      const stroke = node.node.style?.stroke ?? parent.node.style?.stroke ?? theme.connector;
+      const strokeWidth = connectorStrokeWidth(parent, node, settings);
+
+      return `<path d="M ${round(startX)} ${round(startY)} L ${round(startX)} ${round(midY)} L ${round(endX)} ${round(midY)} L ${round(endX)} ${round(endY)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    })
+    .filter(Boolean)
+    .join("\n  ");
+}
+
+function renderTimelineConnectors(layout: MindLayout, root: PositionedMindNode, theme: RenderTheme, settings: RenderSettings): string {
+  const mainTopics = layout.nodes
+    .filter(node => node.parentId === root.node.id)
+    .sort((a, b) => a.y - b.y);
+  const lastMain = mainTopics[mainTopics.length - 1];
+  const spineStartY = root.y + root.height / 2;
+  const spineEndY = lastMain ? lastMain.y + lastMain.height / 2 + 18 : spineStartY;
+  const parts: string[] = mainTopics.length
+    ? [`<path d="M ${round(root.x)} ${round(spineStartY)} L ${round(root.x)} ${round(spineEndY)}" fill="none" stroke="${escapeAttr(theme.connector)}" stroke-width="${round(2.2 * settings.connectorScale)}" stroke-linecap="round"/>`]
+    : [];
+
+  for (const node of layout.nodes.filter(node => node.parentId)) {
+    const parent = node.parentId ? layout.byId.get(node.parentId) : undefined;
+    if (!parent) {
+      continue;
+    }
+
+    if (parent.node.id === root.node.id) {
+      const side = node.x >= root.x ? 1 : -1;
+      const endX = node.x - side * node.width / 2;
+      const stroke = node.node.style?.stroke ?? theme.connector;
+      parts.push(`<path d="M ${round(root.x)} ${round(node.y)} L ${round(endX)} ${round(node.y)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(2 * settings.connectorScale)}" stroke-linecap="round"/>`);
+      parts.push(`<circle cx="${round(root.x)}" cy="${round(node.y)}" r="${round(4 * settings.connectorScale)}" fill="${escapeAttr(stroke)}"/>`);
       continue;
     }
 
@@ -1208,6 +1271,24 @@ function isFishboneRightHeaded(node: MindNode): boolean {
     : "";
 
   return structure.includes("fishbone.rightHeaded");
+}
+
+function isOrgChartDown(node: MindNode): boolean {
+  const raw = node.raw;
+  const structure = typeof raw === "object" && raw !== null && "structureClass" in raw
+    ? String((raw as { structureClass?: unknown }).structureClass ?? "")
+    : "";
+
+  return structure.includes("org-chart.down");
+}
+
+function isTimelineThroughVertical(node: MindNode): boolean {
+  const raw = node.raw;
+  const structure = typeof raw === "object" && raw !== null && "structureClass" in raw
+    ? String((raw as { structureClass?: unknown }).structureClass ?? "")
+    : "";
+
+  return structure.includes("timeline.through.vertical");
 }
 
 function resolveNodeFontFamily(styleFontFamily: string | undefined, fallback: string): string {
