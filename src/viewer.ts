@@ -17,6 +17,8 @@ export type MindPortViewer = {
   setDocument: (document: MindPortDocument, options?: RenderDocumentOptions) => void;
   setSvg: (svg: string) => void;
   setScale: (scale: number) => void;
+  getScale: () => number;
+  fit: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
   reset: () => void;
@@ -31,6 +33,7 @@ export function createMindPortViewer(
   const ownerDocument = container.ownerDocument;
   const element = ownerDocument.createElement("div");
   const viewport = ownerDocument.createElement("div");
+  const surface = ownerDocument.createElement("div");
   const content = ownerDocument.createElement("div");
   const controls = ownerDocument.createElement("div");
   const minScale = finiteOrDefault(options.minScale, 0.2);
@@ -60,8 +63,19 @@ export function createMindPortViewer(
     "box-sizing:border-box"
   ].join(";");
 
+  surface.className = "mind-port-viewer__surface";
+  surface.style.cssText = [
+    "position:relative",
+    "display:inline-block",
+    "min-width:1px",
+    "min-height:1px"
+  ].join(";");
+
   content.className = "mind-port-viewer__content";
   content.style.cssText = [
+    "position:absolute",
+    "left:0",
+    "top:0",
     "display:inline-block",
     "transform-origin:0 0",
     "will-change:transform"
@@ -77,13 +91,15 @@ export function createMindPortViewer(
     "z-index:1"
   ].join(";");
 
-  viewport.append(content);
+  surface.append(content);
+  viewport.append(surface);
   element.append(viewport);
 
   if (options.controls !== false) {
     controls.append(
       button(ownerDocument, "-", "Zoom out", () => viewer.zoomOut()),
       button(ownerDocument, "+", "Zoom in", () => viewer.zoomIn()),
+      button(ownerDocument, "Fit", "Fit to viewport", () => viewer.fit()),
       button(ownerDocument, "1:1", "Reset zoom", () => viewer.reset())
     );
     element.append(controls);
@@ -108,6 +124,19 @@ export function createMindPortViewer(
     },
     setSvg,
     setScale,
+    getScale() {
+      return scale;
+    },
+    fit() {
+      const size = contentIntrinsicSize(content);
+      const nextScale = Math.min(
+        (viewport.clientWidth - 32) / Math.max(1, size.width),
+        (viewport.clientHeight - 32) / Math.max(1, size.height),
+        maxScale
+      );
+      setScale(Math.max(minScale, nextScale));
+      viewport.scrollTo({ left: 0, top: 0 });
+    },
     zoomIn() {
       setScale(scale + zoomStep);
     },
@@ -149,6 +178,13 @@ export function createMindPortViewer(
 
   function applyScale(): void {
     content.style.transform = `scale(${scale})`;
+    updateSurfaceSize();
+  }
+
+  function updateSurfaceSize(): void {
+    const size = contentIntrinsicSize(content);
+    surface.style.width = `${Math.max(1, Math.ceil(size.width * scale))}px`;
+    surface.style.height = `${Math.max(1, Math.ceil(size.height * scale))}px`;
   }
 }
 
@@ -179,4 +215,30 @@ function finiteOrDefault(value: unknown, fallback: number): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function contentIntrinsicSize(content: HTMLElement): { width: number; height: number } {
+  const svg = content.querySelector("svg");
+  if (svg) {
+    const viewBox = svg.getAttribute("viewBox")?.split(/\s+/).map(Number);
+    return {
+      width: firstFiniteNumber(Number(svg.getAttribute("width")), viewBox?.[2], content.scrollWidth, 1),
+      height: firstFiniteNumber(Number(svg.getAttribute("height")), viewBox?.[3], content.scrollHeight, 1)
+    };
+  }
+
+  return {
+    width: content.scrollWidth,
+    height: content.scrollHeight
+  };
+}
+
+function firstFiniteNumber(...values: Array<number | undefined>): number {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return 1;
 }

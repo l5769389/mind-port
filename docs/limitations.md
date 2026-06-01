@@ -10,6 +10,8 @@ For XMind, use `compatibilityMode: "preview"` or `renderMode: "thumbnail"` when 
 
 For ProcessOn diagrams, MindPort preserves geometry and major style fields. It does not attempt to re-route complex curves exactly like ProcessOn.
 
+For ProcessOn mind maps, MindPort reads common `structure` and `theme` fields and provides manual layout/style overrides. Official canvas thumbnails, decorative template thumbnails, exact branch routing, and every editor-side style variant are still approximations.
+
 ## Unsupported Or Degraded Fields
 
 Common degradations include:

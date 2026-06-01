@@ -1,21 +1,25 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { renderFileToSvg } from "mind-port";
+import { render } from "mind-port";
 
 if (!process.argv[2]) {
-  console.error("Usage: npm run render -- <input.xmind|input.pos> [out.svg]");
+  console.error("Usage: npm run render -- <input.xmind|input.pos> [out.html|out.svg]");
   process.exit(1);
 }
 
 const inputPath = resolve(process.argv[2]);
-const outputPath = resolve(process.argv[3] ?? "out.svg");
+const outputPath = resolve(process.argv[3] ?? "out.html");
 const input = await readFile(inputPath);
 
-const svg = await renderFileToSvg(input, {
+const result = await render(input, {
   fileName: basename(inputPath),
-  compatibilityMode: "preview",
-  stylePreset: "xmind"
+  compatibilityMode: "semantic",
+  output: outputPath.toLowerCase().endsWith(".html") ? "html" : "svg",
+  html: {
+    title: basename(inputPath),
+    lang: "en"
+  }
 });
 
-await writeFile(outputPath, svg);
-console.log(`Wrote ${outputPath}`);
+await writeFile(outputPath, result.content);
+console.log(`Wrote ${outputPath} (${result.inspection.kind}, ${result.inspection.warnings.length} warnings)`);

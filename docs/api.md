@@ -1,33 +1,33 @@
 # MindPort API
 
-MindPort exposes a small core API, a frameworkless browser viewer helper, and a CLI.
+MindPort exposes a v1-ready SDK surface while keeping the original MVP APIs as aliases.
 
-## Core Import
+MindPort 提供面向 v1 的 SDK 接口，同时保留早期 API 作为兼容别名。
+
+## Canonical Import
 
 ```ts
 import {
-  parseFile,
-  renderFileToSvg,
-  renderDocumentToSvg,
-  parseMindFile,
-  renderToSvg,
-  parseDiagramFile,
-  renderDiagramToSvg
+  parse,
+  inspect,
+  inspectDocument,
+  render,
+  renderSvg,
+  renderHtml,
+  renderFileToHtml
 } from "mind-port";
 ```
 
-### `parseFile(input, options)`
+## `parse(input, options)`
 
-Auto-detects XMind archives, ProcessOn mind-map POS JSON, and ProcessOn diagram POS JSON.
+Parses XMind archives, ProcessOn mind maps, or ProcessOn diagrams into a discriminated document.
 
 ```ts
-const parsed = await parseFile(file, {
+const parsed = await parse(file, {
   fileName: file.name,
   kind: "auto"
 });
 ```
-
-Returns:
 
 ```ts
 type MindPortDocument =
@@ -35,68 +35,101 @@ type MindPortDocument =
   | { kind: "diagram"; document: DiagramDocument; warnings?: MindPortWarning[] };
 ```
 
-Use `kind: "mind"` or `kind: "diagram"` when the file extension is ambiguous.
+## `inspect(input, options)` / `inspectDocument(document)`
 
-### `renderDocumentToSvg(document, options)`
-
-Dispatches by `document.kind` and returns SVG.
+Returns a stable summary for indexing, logging, validation, and UI metadata.
 
 ```ts
-const svg = renderDocumentToSvg(parsed, {
-  compatibilityMode: "semantic",
-  stylePreset: "xmind"
-});
+const info = await inspect(file, { fileName: file.name });
 ```
 
-### `renderFileToSvg(input, options)`
+`MindPortInspection` includes:
 
-Combines `parseFile` and `renderDocumentToSvg`.
+- `kind`, `sourceFormat`, `title`, `fileName`
+- `sheets`, `pages`, `nodes`, `floatingTopics`, `relationships`
+- `shapes`, `connectors`, `assets`
+- `warnings`
 
-```ts
-const svg = await renderFileToSvg(bytes, {
-  fileName: "map.xmind",
-  compatibilityMode: "preview"
-});
-```
+## `render(input, options)`
 
-### Lower-Level APIs
-
-`parseMindFile` / `renderToSvg` are for XMind and ProcessOn mind-map trees.
-
-`parseDiagramFile` / `renderDiagramToSvg` are for ProcessOn flowchart and diagram POS files. The diagram renderer keeps original geometry instead of running a mind-map layout.
-
-## Viewer Import
+One-call parse + inspect + render. Use this for most app integrations.
 
 ```ts
-import { createMindPortViewer } from "mind-port/viewer";
-```
-
-```ts
-const viewer = createMindPortViewer(container, parsedDocument, {
-  controls: true,
-  initialScale: 1,
+const result = await render(file, {
+  fileName: file.name,
+  output: "html",
   compatibilityMode: "semantic"
 });
 
-viewer.setDocument(parsedDocument);
-viewer.setSvg(svg);
-viewer.zoomIn();
-viewer.zoomOut();
+result.content;
+result.inspection;
+```
+
+```ts
+type MindPortRenderResult = {
+  document: MindPortDocument;
+  inspection: MindPortInspection;
+  output: "svg" | "html";
+  content: string;
+  warnings: MindPortWarning[];
+};
+```
+
+## `renderSvg(document, options)`
+
+Renders a parsed document to SVG. The v1-ready default theme is `mindport`.
+
+```ts
+const svg = renderSvg(parsed, {
+  compatibilityMode: "semantic",
+  stylePreset: "processon",
+  structureStyle: "auto",
+  processOnStyle: "file",
+  canvasBackground: "#ffffff"
+});
+```
+
+ProcessOn mind-map options:
+
+- `stylePreset: "processon"` enables ProcessOn-oriented connector scale and boundary defaults.
+- `structureStyle` can force layouts such as `fishbone-left`, `fishbone-right`, `org-down`, `tree-right`, or `timeline-horizontal`; `auto` reads the POS file structure.
+- `processOnStyle` can be `file`, `classic`, `warm`, `fresh`, `blue`, `green`, `purple`, `dark`, or `gray`; `file` keeps POS theme fields when present.
+- `canvasBackground`, `hideCentralTopic`, `watermark`, `horizontalGap`, `verticalGap`, and `preserveAttachedPositions` expose the same canvas-style knobs used by the demo for visual compatibility checks.
+
+## `renderHtml(document, options)` / `renderFileToHtml(input, options)`
+
+Wraps SVG in a responsive HTML preview with an optional metadata panel.
+
+```ts
+const html = renderHtml(parsed, {
+  title: "Preview",
+  lang: "zh-CN",
+  includeMetadataPanel: true,
+  minHeight: "100vh"
+});
+```
+
+## Viewer
+
+```ts
+import { createMindPortViewer } from "mind-port/viewer";
+
+const viewer = createMindPortViewer(container, parsed, { controls: true });
+viewer.fit();
+viewer.getScale();
+viewer.setScale(1.2);
 viewer.reset();
 viewer.destroy();
 ```
 
-The viewer accepts either a `MindPortDocument` or an SVG string.
+## Legacy Aliases
 
-## CLI
+These remain exported for compatibility:
 
-```bash
-mind-port render input.xmind --out out.html
-mind-port render input.pos --out out.svg --kind auto --mode semantic
-mind-port inspect input.xmind --json
-mind-port bench fixtures/**/*.xmind --out artifacts/visual-benchmarks.html
-```
+- `parseFile` -> `parse`
+- `renderDocumentToSvg` -> legacy SVG dispatcher
+- `renderFileToSvg` -> parse + legacy SVG dispatcher
+- `parseMindFile`, `renderToSvg`
+- `parseDiagramFile`, `renderDiagramToSvg`
 
-`render` writes SVG by default. If `--out` ends with `.html`, it wraps the SVG in a minimal scrollable HTML page.
-
-`inspect --json` prints kind, source format, sheet/page counts, node/shape counts, connector counts, and warnings.
+New integrations should prefer `parse`, `inspect`, `render`, `renderSvg`, and `renderHtml`.

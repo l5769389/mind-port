@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { parseFile, renderDocumentToSvg, renderFileToSvg } from "./core";
-import type { MindNode, MindPortDocument, RenderFileOptions } from "./types";
+import { inspect, render, renderFileToHtml } from "./core";
+import type { MindPortInspection, MindStructureStyle, ProcessOnStylePreset, RenderFileOptions } from "./types";
 
 type ParsedArgs = {
   command: string;
@@ -41,18 +41,17 @@ async function renderCommand(args: ParsedArgs): Promise<void> {
   const inputPath = resolve(input);
   const out = stringFlag(args, "out");
   const mode = stringFlag(args, "mode");
-  const kind = stringFlag(args, "kind");
   const bytes = await readFile(inputPath);
   const options = renderOptionsFor(args, inputPath);
-  const svg = await renderFileToSvg(bytes, {
+  const renderOptions: RenderFileOptions = {
     ...options,
     fileName: basename(inputPath),
     ...(mode === "preview" || mode === "semantic" || mode === "editable" ? { compatibilityMode: mode } : {}),
-    ...(kind === "mind" || kind === "diagram" || kind === "auto" ? { kind } : {})
-  });
+    kind: kindFlag(args)
+  };
   const output = out && out.toLowerCase().endsWith(".html")
-    ? wrapHtml(basename(inputPath), svg)
-    : svg;
+    ? await renderFileToHtml(bytes, { ...renderOptions, title: basename(inputPath), lang: "zh-CN" })
+    : (await render(bytes, renderOptions)).content;
 
   if (out) {
     await mkdir(dirname(resolve(out)), { recursive: true });
@@ -69,11 +68,10 @@ async function inspectCommand(args: ParsedArgs): Promise<void> {
   }
 
   const inputPath = resolve(input);
-  const document = await parseFile(await readFile(inputPath), {
+  const summary = await inspect(await readFile(inputPath), {
     fileName: basename(inputPath),
     kind: kindFlag(args)
   });
-  const summary = summarizeDocument(document, basename(inputPath));
 
   if (args.flags.json) {
     console.log(JSON.stringify(summary, null, 2));
@@ -105,9 +103,8 @@ async function benchCommand(args: ParsedArgs): Promise<void> {
   for (const file of files) {
     try {
       const bytes = await readFile(file);
-      const document = await parseFile(bytes, { fileName: basename(file) });
-      const svg = renderDocumentToSvg(document, renderOptionsFor(args, file));
-      sections.push(`<section class="case"><h2>${escapeHtml(file)}</h2><div class="preview">${svg}</div></section>`);
+      const result = await render(bytes, renderOptionsFor(args, file));
+      sections.push(`<section class="case"><h2>${escapeHtml(file)}</h2><p>${formatInspection(result.inspection)}</p><div class="preview">${result.content}</div></section>`);
     } catch (error) {
       errors.push({ file, message: error instanceof Error ? error.message : String(error) });
     }
@@ -131,7 +128,7 @@ async function benchCommand(args: ParsedArgs): Promise<void> {
     </style>
   </head>
   <body>
-    <header><h1>MindPort Bench</h1><p>${files.length} files · ${errors.length} errors</p></header>
+    <header><h1>MindPort Bench</h1><p>${files.length} files / ${errors.length} errors</p></header>
     <main>${sections.join("\n")}</main>
   </body>
 </html>`;
@@ -184,10 +181,44 @@ function renderOptionsFor(args: ParsedArgs, filePath: string): RenderFileOptions
     fileName: basename(filePath),
     kind,
     padding: numberFlag(args, "padding") ?? 64,
-    stylePreset: stringFlag(args, "style") === "clean" ? "clean" : "xmind",
+    stylePreset: stylePresetFlag(args),
+    ...(structureStyleFlag(args) ? { structureStyle: structureStyleFlag(args) } : {}),
+    ...(processOnStyleFlag(args) ? { processOnStyle: processOnStyleFlag(args) } : {}),
     ...(renderMode ? { renderMode } : {}),
     ...(mode === "preview" || mode === "semantic" || mode === "editable" ? { compatibilityMode: mode } : {})
   };
+}
+
+function stylePresetFlag(args: ParsedArgs): "clean" | "xmind" | "processon" {
+  const style = stringFlag(args, "style");
+  return style === "clean" || style === "processon" ? style : "xmind";
+}
+
+function structureStyleFlag(args: ParsedArgs): MindStructureStyle | undefined {
+  const value = stringFlag(args, "layout");
+  const allowed: MindStructureStyle[] = [
+    "auto",
+    "mindmap-balanced",
+    "mindmap-left",
+    "mindmap-right",
+    "logic-left",
+    "logic-right",
+    "tree-left",
+    "tree-right",
+    "org-down",
+    "org-up",
+    "fishbone-left",
+    "fishbone-right",
+    "timeline-vertical",
+    "timeline-horizontal"
+  ];
+  return allowed.find(item => item === value);
+}
+
+function processOnStyleFlag(args: ParsedArgs): ProcessOnStylePreset | undefined {
+  const value = stringFlag(args, "processon-style");
+  const allowed: ProcessOnStylePreset[] = ["file", "classic", "warm", "fresh", "blue", "green", "purple", "dark", "gray"];
+  return allowed.find(item => item === value);
 }
 
 function kindFlag(args: ParsedArgs): "auto" | "mind" | "diagram" {
@@ -205,35 +236,11 @@ function numberFlag(args: ParsedArgs, key: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
-function summarizeDocument(document: MindPortDocument, fileName: string): Record<string, unknown> {
-  if (document.kind === "diagram") {
-    const page = document.document.pages[0];
-    return {
-      fileName,
-      kind: "diagram",
-      sourceFormat: document.document.sourceFormat,
-      pages: document.document.pages.length,
-      shapes: page?.shapes.length ?? 0,
-      connectors: page?.connectors.length ?? 0,
-      warnings: document.warnings ?? []
-    };
-  }
-
-  const sheet = document.document.sheets[0];
-  return {
-    fileName,
-    kind: "mind",
-    sourceFormat: document.document.sourceFormat,
-    sheets: document.document.sheets.length,
-    nodes: sheet ? countNodes(sheet.root) : 0,
-    floatingTopics: sheet?.floatingTopics?.length ?? 0,
-    relationships: sheet?.relationships?.length ?? 0,
-    warnings: document.warnings ?? []
-  };
-}
-
-function countNodes(node: MindNode): number {
-  return 1 + node.children.reduce((sum, child) => sum + countNodes(child), 0);
+function formatInspection(inspection: MindPortInspection): string {
+  const stats = inspection.kind === "mind"
+    ? `${inspection.nodes} topics / ${inspection.relationships} relationships`
+    : `${inspection.shapes} shapes / ${inspection.connectors} connectors`;
+  return `${inspection.kind} / ${inspection.sourceFormat} / ${stats} / ${inspection.warnings.length} warnings`;
 }
 
 async function expandPattern(pattern: string): Promise<string[]> {
@@ -241,14 +248,17 @@ async function expandPattern(pattern: string): Promise<string[]> {
     return [resolve(pattern)];
   }
 
-  const normalized = pattern.replace(/\\/g, "/");
+  const normalized = resolve(pattern).replace(/\\/g, "/");
   const recursive = normalized.includes("**");
-  const prefix = normalized.split("*")[0]?.replace(/\/?$/, "") || ".";
-  const base = resolve(prefix.includes("/") ? prefix.slice(0, prefix.lastIndexOf("/")) || "." : ".");
-  const suffix = normalized.slice(normalized.lastIndexOf("*") + 1);
-  const files = await walk(base, recursive);
+  const wildcardIndex = normalized.indexOf("*");
+  const prefix = normalized.slice(0, wildcardIndex);
+  const base = prefix.endsWith("/")
+    ? prefix.slice(0, -1)
+    : prefix.slice(0, prefix.lastIndexOf("/"));
+  const glob = globToRegExp(normalized);
+  const files = await walk(base || ".", recursive);
 
-  return files.filter(file => file.replace(/\\/g, "/").endsWith(suffix.replace(/^\//, "")) || suffix === "");
+  return files.filter(file => glob.test(file.replace(/\\/g, "/")));
 }
 
 async function walk(dir: string, recursive: boolean): Promise<string[]> {
@@ -274,21 +284,40 @@ function unique(values: string[]): string[] {
   return [...new Map(values.map(value => [resolve(value).toLowerCase(), resolve(value)])).values()];
 }
 
-function wrapHtml(title: string, svg: string): string {
-  return `<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${escapeHtml(title)} - MindPort</title>
-    <style>
-      body { margin: 0; background: #eef2f6; }
-      main { min-height: 100vh; overflow: auto; padding: 24px; }
-      svg { display: block; max-width: none; }
-    </style>
-  </head>
-  <body><main>${svg}</main></body>
-</html>`;
+function globToRegExp(pattern: string): RegExp {
+  let source = "^";
+  for (let index = 0; index < pattern.length;) {
+    const char = pattern[index];
+    const next = pattern[index + 1];
+    const afterNext = pattern[index + 2];
+
+    if (char === "*" && next === "*" && afterNext === "/") {
+      source += "(?:.*/)?";
+      index += 3;
+      continue;
+    }
+
+    if (char === "*" && next === "*") {
+      source += ".*";
+      index += 2;
+      continue;
+    }
+
+    if (char === "*") {
+      source += "[^/]*";
+      index += 1;
+      continue;
+    }
+
+    source += escapeRegExp(char ?? "");
+    index += 1;
+  }
+
+  return new RegExp(`${source}$`, "i");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
 
 function printHelp(error?: string): void {
@@ -299,13 +328,14 @@ function printHelp(error?: string): void {
   console.log(`MindPort
 
 Usage:
-  mind-port render <input> --out <out.svg|out.html> [--kind auto|mind|diagram] [--mode preview|semantic|editable]
+  mind-port render <input> --out <out.svg|out.html> [--kind auto|mind|diagram] [--mode preview|semantic|editable] [--style clean|xmind|processon] [--layout auto|fishbone-left|org-down|timeline-horizontal] [--processon-style file|blue|dark]
   mind-port inspect <input> [--json]
   mind-port bench <files...> --out artifacts/visual-benchmarks.html
 
 Examples:
   mind-port render map.xmind --out map.html --mode preview
   mind-port render flow.pos --out flow.svg --kind diagram --mode semantic
+  mind-port render fishbone.pos --out fishbone.html --style processon --layout fishbone-left --processon-style file
   mind-port inspect map.xmind --json
 `);
 }

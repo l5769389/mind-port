@@ -1,4 +1,4 @@
-import { parseFile } from "mind-port";
+import { parse } from "mind-port";
 import { createMindPortViewer } from "mind-port/viewer";
 
 const fileInput = document.querySelector("#file");
@@ -11,13 +11,13 @@ fileInput.addEventListener("change", async () => {
     return;
   }
 
-  const parsed = await parseFile(file, { fileName: file.name });
+  const parsed = await parse(file, { fileName: file.name });
   viewer.destroy();
   viewer = createMindPortViewer(viewerContainer, parsed, {
     compatibilityMode: "semantic",
-    stylePreset: "xmind",
     controls: true
   });
+  viewer.fit();
 });
 
 function emptySvg() {

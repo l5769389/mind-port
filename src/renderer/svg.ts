@@ -1,5 +1,5 @@
-import type { MindAsset, MindBoundary, MindDocument, MindLayout, MindNode, MindRelationship, MindSummary, PositionedMindNode, RenderSettings, RenderSvgOptions, RenderTheme } from "../types";
-import { layoutMindSheet } from "./layout";
+import type { MindAsset, MindBoundary, MindDocument, MindLayout, MindNode, MindRelationship, MindSheet, MindStyle, MindSummary, ProcessOnStylePreset, PositionedMindNode, RenderSettings, RenderSvgOptions, RenderTheme } from "../types";
+import { layoutMindSheet, resolveStructureStyle } from "./layout";
 
 const DEFAULT_THEME: RenderTheme = {
   background: "#f7f8fb",
@@ -25,6 +25,18 @@ const INK_THEME: RenderTheme = {
   relationship: "#b45309"
 };
 
+const MINDPORT_THEME: RenderTheme = {
+  background: "#f3f6fa",
+  rootFill: "#14324a",
+  rootStroke: "#14324a",
+  nodeFill: "#ffffff",
+  nodeStroke: "#d6deea",
+  text: "#172033",
+  mutedText: "#68778c",
+  connector: "#8ea0b8",
+  relationship: "#d78b45"
+};
+
 const CLEAN_RENDER_SETTINGS: RenderSettings = {
   connectorScale: 1,
   showBoundaries: false,
@@ -43,7 +55,146 @@ const XMIND_RENDER_SETTINGS: RenderSettings = {
   relationshipStyle: "hidden"
 };
 
+const PROCESSON_RENDER_SETTINGS: RenderSettings = {
+  connectorScale: 1.08,
+  showBoundaries: true,
+  showGroupBackgrounds: false,
+  boundaryOpacity: 0.7,
+  groupBackgroundOpacity: 0.5,
+  relationshipStyle: "clean"
+};
+
 const FISHBONE_RIB_JOINT_GAP = 132;
+
+type ProcessOnThemePreset = {
+  background: string;
+  center: MindStyle;
+  secondary: MindStyle;
+  child: MindStyle;
+  floating: MindStyle;
+};
+
+const PROCESSON_STYLE_PRESETS: Record<Exclude<ProcessOnStylePreset, "file">, ProcessOnThemePreset> = {
+  classic: makeProcessOnPreset("#ffffff", "#f05f57", "#2ec4b6", "#223047"),
+  warm: makeProcessOnPreset("#fff7ed", "#f97316", "#ef4444", "#7c2d12"),
+  fresh: makeProcessOnPreset("#f0fdf4", "#10b981", "#14b8a6", "#14532d"),
+  blue: makeProcessOnPreset("#eff6ff", "#3b82f6", "#38bdf8", "#1e3a8a"),
+  green: makeProcessOnPreset("#f0fdf4", "#22c55e", "#86c440", "#14532d"),
+  purple: makeProcessOnPreset("#faf5ff", "#7c3aed", "#a855f7", "#3b0764"),
+  dark: makeProcessOnPreset("#30284b", "#ffffff", "#f97316", "#f8fafc", true),
+  gray: makeProcessOnPreset("#f7f8fa", "#343a40", "#6b7280", "#111827")
+};
+
+function makeProcessOnPreset(
+  background: string,
+  centerFill: string,
+  secondaryFill: string,
+  line: string,
+  dark = false
+): ProcessOnThemePreset {
+  const text = dark ? "#f8fafc" : "#172033";
+  const centerText = dark || isDarkColor(centerFill) ? "#ffffff" : "#172033";
+  const secondaryText = isDarkColor(secondaryFill) ? "#ffffff" : "#172033";
+
+  return {
+    background,
+    center: {
+      fill: centerFill,
+      stroke: centerFill,
+      strokeWidth: 1.5,
+      borderRadius: 6,
+      color: centerText,
+      fontSize: 22,
+      fontWeight: 700,
+      lineStroke: line,
+      lineWidth: 2.2
+    },
+    secondary: {
+      fill: secondaryFill,
+      stroke: secondaryFill,
+      strokeWidth: 1,
+      borderRadius: 5,
+      color: secondaryText,
+      fontSize: 15,
+      fontWeight: 600,
+      lineStroke: line,
+      lineWidth: 2
+    },
+    child: {
+      fill: dark ? "transparent" : "#ffffff",
+      stroke: dark ? "#625a7f" : "#d9e1ec",
+      strokeWidth: dark ? 1 : 0,
+      borderRadius: 4,
+      color: text,
+      fontSize: 13,
+      fontWeight: 500,
+      lineStroke: line,
+      lineWidth: 1.7
+    },
+    floating: {
+      fill: secondaryFill,
+      stroke: secondaryFill,
+      strokeWidth: 1,
+      borderRadius: 5,
+      color: secondaryText,
+      fontSize: 15,
+      fontWeight: 600,
+      lineStroke: line,
+      lineWidth: 2
+    }
+  };
+}
+
+function resolveProcessOnStyledSheet(sheet: MindSheet, options: RenderSvgOptions): MindSheet {
+  const preset = options.processOnStyle ?? "file";
+  const hasFileTheme = hasProcessOnFileTheme(sheet);
+  if (preset === "file" && hasFileTheme) {
+    return sheet;
+  }
+
+  const resolvedPreset = preset === "file" ? "classic" : preset;
+  const theme = PROCESSON_STYLE_PRESETS[resolvedPreset];
+
+  return {
+    ...sheet,
+    style: {
+      ...sheet.style,
+      fill: theme.background,
+      raw: sheet.style?.raw
+    },
+    root: applyProcessOnPresetToNode(sheet.root, theme, 0),
+    ...(sheet.floatingTopics ? { floatingTopics: sheet.floatingTopics.map(node => applyProcessOnPresetToNode(node, theme, 0, "floating")) } : {})
+  };
+}
+
+function hasProcessOnFileTheme(sheet: MindSheet): boolean {
+  const raw = sheet.raw;
+  if (raw && typeof raw === "object" && "theme" in raw) {
+    return true;
+  }
+
+  return Boolean(sheet.style?.fill || sheet.root.style?.raw);
+}
+
+function applyProcessOnPresetToNode(node: MindNode, theme: ProcessOnThemePreset, depth: number, role?: "floating"): MindNode {
+  const presetStyle = role === "floating"
+    ? theme.floating
+    : depth === 0
+      ? theme.center
+      : depth === 1
+        ? theme.secondary
+        : theme.child;
+
+  return {
+    ...node,
+    style: {
+      ...node.style,
+      ...presetStyle,
+      raw: node.style?.raw
+    },
+    children: node.children.map(child => applyProcessOnPresetToNode(child, theme, depth + 1))
+  };
+}
 
 export function renderToSvg(document: MindDocument, options: RenderSvgOptions = {}): string {
   const renderMode = options.renderMode ?? "semantic";
@@ -58,29 +209,42 @@ export function renderToSvg(document: MindDocument, options: RenderSvgOptions = 
 }
 
 function renderSemanticSvg(document: MindDocument, options: RenderSvgOptions = {}): string {
-  const sheet = document.sheets[options.sheetIndex ?? 0];
+  const sourceSheet = document.sheets[options.sheetIndex ?? 0];
 
-  if (!sheet) {
+  if (!sourceSheet) {
     throw new Error("Cannot render an empty mind document.");
   }
 
+  const sheet = document.sourceFormat === "processon"
+    ? resolveProcessOnStyledSheet(sourceSheet, options)
+    : sourceSheet;
   const theme = resolveTheme(options.theme);
   const layout = layoutMindSheet(sheet, options);
-  const background = sheet.style?.fill ?? theme.background;
+  const background = options.canvasBackground ?? sheet.style?.fill ?? theme.background;
   const renderTheme = adaptThemeToBackground(theme, background);
   const renderSettings = resolveRenderSettings(options, sheet);
   const fontFamily = options.fontFamily ?? "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
   const canvasWidth = layout.width + getSummaryCanvasPadding(sheet.root);
   const boundaries = renderBoundaries(layout, sheet.root, renderSettings);
   const groupBackgrounds = renderGroupBackgrounds(layout, sheet.root, renderSettings);
-  const edges = renderConnectors(layout, renderTheme, renderSettings);
+  const edges = renderConnectors(layout, renderTheme, renderSettings, options);
   const relationships = renderRelationships(layout, sheet.relationships ?? [], renderTheme, renderSettings, sheet.root.id);
   const summaries = renderSummaries(layout, sheet.root, renderTheme, fontFamily, canvasWidth);
-  const nodes = layout.nodes.map(node => renderNode(node, renderTheme, fontFamily, document.assets)).join("\n");
+  const watermark = renderWatermark(canvasWidth, layout.height, sheet, options, renderTheme);
+  const nodes = layout.nodes
+    .filter(node => !(options.hideCentralTopic && node.node.id === sheet.root.id && !node.parentId))
+    .map(node => renderNode(node, renderTheme, fontFamily, document.assets))
+    .join("\n");
   const xmlDeclaration = options.includeXmlDeclaration ? "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" : "";
 
   return `${xmlDeclaration}<svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${layout.height}" viewBox="0 0 ${canvasWidth} ${layout.height}" role="img" aria-label="${escapeAttr(sheet.title)}">
   <defs>
+    <filter id="mind-port-node-shadow" x="-20%" y="-30%" width="140%" height="170%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#132033" flood-opacity="0.10"/>
+    </filter>
+    <filter id="mind-port-label-shadow" x="-20%" y="-30%" width="140%" height="170%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#132033" flood-opacity="0.10"/>
+    </filter>
     <marker id="mind-port-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/>
     </marker>
@@ -94,8 +258,42 @@ function renderSemanticSvg(document: MindDocument, options: RenderSvgOptions = {
   ${edges}
   ${relationships}
   ${summaries}
+  ${watermark}
   ${nodes}
 </svg>`;
+}
+
+function renderWatermark(width: number, height: number, sheet: MindSheet, options: RenderSvgOptions, theme: RenderTheme): string {
+  const mode = options.watermark ?? "none";
+  if (mode === "none") {
+    return "";
+  }
+
+  const text = mode === "mindport" ? "MindPort" : getFileWatermark(sheet);
+  if (!text) {
+    return "";
+  }
+
+  const isDark = isDarkColor(options.canvasBackground ?? sheet.style?.fill ?? theme.background);
+  const fill = isDark ? "#ffffff" : "#172033";
+
+  return `<text x="${round(width - 28)}" y="${round(height - 24)}" text-anchor="end" fill="${escapeAttr(fill)}" font-size="13" font-weight="600" opacity="0.18">${escapeText(text)}</text>`;
+}
+
+function getFileWatermark(sheet: MindSheet): string | undefined {
+  const raw = sheet.raw;
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+
+  const record = raw as { showWatermark?: unknown; watermark?: unknown };
+  if (record.showWatermark === false) {
+    return undefined;
+  }
+
+  return typeof record.watermark === "string" && record.watermark.trim()
+    ? record.watermark.trim()
+    : record.showWatermark ? "ProcessOn" : undefined;
 }
 
 function renderEmbeddedThumbnail(document: MindDocument, options: RenderSvgOptions): string | undefined {
@@ -425,19 +623,24 @@ function roughJitter(value: number, salt: number): number {
   return ((Math.sin(value * 0.71 + salt * 2.17) + Math.cos(value * 0.37 + salt)) * 2.2);
 }
 
-function renderConnectors(layout: MindLayout, theme: RenderTheme, settings: RenderSettings): string {
+function renderConnectors(layout: MindLayout, theme: RenderTheme, settings: RenderSettings, options: RenderSvgOptions): string {
   const root = layout.nodes.find(node => node.side === "root" && !node.parentId);
+  const structure = root ? resolveStructureStyle(root.node, options) : "mindmap-balanced";
 
-  if (root && isFishboneRightHeaded(root.node)) {
+  if (root && (structure === "fishbone-left" || structure === "fishbone-right")) {
     return renderFishboneConnectors(layout, root, theme, settings);
   }
 
-  if (root && isOrgChartDown(root.node)) {
+  if (root && (structure === "org-down" || structure === "org-up")) {
     return renderOrgChartConnectors(layout, root, theme, settings);
   }
 
-  if (root && isTimelineThroughVertical(root.node)) {
+  if (root && structure === "timeline-vertical") {
     return renderTimelineConnectors(layout, root, theme, settings);
+  }
+
+  if (root && structure === "timeline-horizontal") {
+    return renderTimelineHorizontalConnectors(layout, root, theme, settings);
   }
 
   return layout.nodes
@@ -457,10 +660,11 @@ function renderDefaultConnector(layout: MindLayout, node: PositionedMindNode, th
   const endX = node.x - side * node.width / 2;
   const c1 = startX + side * 42;
   const c2 = endX - side * 42;
-  const stroke = node.node.style?.stroke ?? parent.node.style?.stroke ?? theme.connector;
+  const stroke = connectorStroke(parent, node, theme);
   const strokeWidth = connectorStrokeWidth(parent, node, settings);
+  const dash = connectorDash(parent, node);
 
-  return `<path d="M ${round(startX)} ${round(parent.y)} C ${round(c1)} ${round(parent.y)}, ${round(c2)} ${round(node.y)}, ${round(endX)} ${round(node.y)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(strokeWidth)}" stroke-linecap="round"/>`;
+  return `<path d="M ${round(startX)} ${round(parent.y)} C ${round(c1)} ${round(parent.y)}, ${round(c2)} ${round(node.y)}, ${round(endX)} ${round(node.y)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(strokeWidth)}" stroke-linecap="round"${dash}/>`;
 }
 
 function renderFishboneConnectors(layout: MindLayout, root: PositionedMindNode, theme: RenderTheme, settings: RenderSettings): string {
@@ -476,9 +680,18 @@ function renderFishboneConnectors(layout: MindLayout, root: PositionedMindNode, 
     ...leafNodes.map(node => node.x - node.width / 2 - 70),
     root.x - root.width / 2 - 120
   );
-  const spineEnd = root.x - root.width / 2;
+  const spineMax = Math.max(
+    ...rootChildren.map(node => node.x + node.width / 2 + 120),
+    ...leafNodes.map(node => node.x + node.width / 2 + 70),
+    root.x + root.width / 2 + 120
+  );
+  const rootChildrenOnLeft = rootChildren.length ? (rootChildren[0]?.x ?? root.x - 1) < root.x : true;
+  const spineEnd = rootChildrenOnLeft ? root.x - root.width / 2 : root.x + root.width / 2;
+  const spineLineStart = rootChildrenOnLeft ? spineStart : spineEnd;
+  const spineLineEnd = rootChildrenOnLeft ? spineEnd : spineMax;
+  const rootStroke = root.node.style?.lineStroke ?? theme.connector;
   const parts: string[] = [
-    `<path d="M ${round(spineStart)} ${round(root.y)} L ${round(spineEnd)} ${round(root.y)}" fill="none" stroke="${escapeAttr(theme.connector)}" stroke-width="${round(2.4 * settings.connectorScale)}" stroke-linecap="round"/>`
+    `<path d="M ${round(spineLineStart)} ${round(root.y)} L ${round(spineLineEnd)} ${round(root.y)}" fill="none" stroke="${escapeAttr(rootStroke)}" stroke-width="${round(2.4 * settings.connectorScale)}" stroke-linecap="round"${root.node.style?.lineDashed ? ` stroke-dasharray="8 6"` : ""}/>`
   ];
 
   for (const node of layout.nodes.filter(node => node.parentId)) {
@@ -490,16 +703,19 @@ function renderFishboneConnectors(layout: MindLayout, root: PositionedMindNode, 
 
     if (parent.node.id === root.node.id) {
       const rib = fishboneRibGeometry(node, root);
-      parts.push(`<path d="M ${round(rib.startX)} ${round(rib.startY)} L ${round(rib.jointX)} ${round(rib.jointY)}" fill="none" stroke="${escapeAttr(node.node.style?.stroke ?? theme.connector)}" stroke-width="${round(2.4 * settings.connectorScale)}" stroke-linecap="round"/>`);
+      const stroke = connectorStroke(root, node, theme);
+      parts.push(`<path d="M ${round(rib.startX)} ${round(rib.startY)} L ${round(rib.jointX)} ${round(rib.jointY)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(2.4 * settings.connectorScale)}" stroke-linecap="round"${connectorDash(root, node)}/>`);
       continue;
     }
 
     if (parent.parentId === root.node.id) {
-      const stroke = node.node.style?.stroke ?? parent.node.style?.stroke ?? theme.connector;
+      const stroke = connectorStroke(parent, node, theme);
       const rib = fishboneRibGeometry(parent, root);
-      const startX = node.x + node.width / 2;
-      const endX = Math.max(startX + 12, fishboneRibXAtY(rib, node.y));
-      parts.push(`<path d="M ${round(startX)} ${round(node.y)} L ${round(endX)} ${round(node.y)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(2 * settings.connectorScale)}" stroke-linecap="round"/>`);
+      const leafOnLeft = node.x < root.x;
+      const startX = node.x + (leafOnLeft ? node.width / 2 : -node.width / 2);
+      const ribX = fishboneRibXAtY(rib, node.y);
+      const endX = leafOnLeft ? Math.max(startX + 12, ribX) : Math.min(startX - 12, ribX);
+      parts.push(`<path d="M ${round(startX)} ${round(node.y)} L ${round(endX)} ${round(node.y)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(2 * settings.connectorScale)}" stroke-linecap="round"${connectorDash(parent, node)}/>`);
       continue;
     }
 
@@ -523,10 +739,11 @@ function renderOrgChartConnectors(layout: MindLayout, root: PositionedMindNode, 
       const endX = node.x;
       const endY = node.y - node.height / 2;
       const midY = startY + Math.max(18, (endY - startY) * 0.48);
-      const stroke = node.node.style?.stroke ?? parent.node.style?.stroke ?? theme.connector;
+      const stroke = connectorStroke(parent, node, theme);
       const strokeWidth = connectorStrokeWidth(parent, node, settings);
+      const dash = connectorDash(parent, node);
 
-      return `<path d="M ${round(startX)} ${round(startY)} L ${round(startX)} ${round(midY)} L ${round(endX)} ${round(midY)} L ${round(endX)} ${round(endY)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+      return `<path d="M ${round(startX)} ${round(startY)} L ${round(startX)} ${round(midY)} L ${round(endX)} ${round(midY)} L ${round(endX)} ${round(endY)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
     })
     .filter(Boolean)
     .join("\n  ");
@@ -540,7 +757,7 @@ function renderTimelineConnectors(layout: MindLayout, root: PositionedMindNode, 
   const spineStartY = root.y + root.height / 2;
   const spineEndY = lastMain ? lastMain.y + lastMain.height / 2 + 18 : spineStartY;
   const parts: string[] = mainTopics.length
-    ? [`<path d="M ${round(root.x)} ${round(spineStartY)} L ${round(root.x)} ${round(spineEndY)}" fill="none" stroke="${escapeAttr(theme.connector)}" stroke-width="${round(2.2 * settings.connectorScale)}" stroke-linecap="round"/>`]
+    ? [`<path d="M ${round(root.x)} ${round(spineStartY)} L ${round(root.x)} ${round(spineEndY)}" fill="none" stroke="${escapeAttr(root.node.style?.lineStroke ?? theme.connector)}" stroke-width="${round(2.2 * settings.connectorScale)}" stroke-linecap="round"${root.node.style?.lineDashed ? ` stroke-dasharray="8 6"` : ""}/>`]
     : [];
 
   for (const node of layout.nodes.filter(node => node.parentId)) {
@@ -552,9 +769,42 @@ function renderTimelineConnectors(layout: MindLayout, root: PositionedMindNode, 
     if (parent.node.id === root.node.id) {
       const side = node.x >= root.x ? 1 : -1;
       const endX = node.x - side * node.width / 2;
-      const stroke = node.node.style?.stroke ?? theme.connector;
-      parts.push(`<path d="M ${round(root.x)} ${round(node.y)} L ${round(endX)} ${round(node.y)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(2 * settings.connectorScale)}" stroke-linecap="round"/>`);
+      const stroke = connectorStroke(root, node, theme);
+      parts.push(`<path d="M ${round(root.x)} ${round(node.y)} L ${round(endX)} ${round(node.y)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(2 * settings.connectorScale)}" stroke-linecap="round"${connectorDash(root, node)}/>`);
       parts.push(`<circle cx="${round(root.x)}" cy="${round(node.y)}" r="${round(4 * settings.connectorScale)}" fill="${escapeAttr(stroke)}"/>`);
+      continue;
+    }
+
+    parts.push(renderDefaultConnector(layout, node, theme, settings));
+  }
+
+  return parts.join("\n  ");
+}
+
+function renderTimelineHorizontalConnectors(layout: MindLayout, root: PositionedMindNode, theme: RenderTheme, settings: RenderSettings): string {
+  const mainTopics = layout.nodes
+    .filter(node => node.parentId === root.node.id)
+    .sort((a, b) => a.x - b.x);
+  const firstMain = mainTopics[0];
+  const lastMain = mainTopics[mainTopics.length - 1];
+  const spineStartX = firstMain ? Math.min(firstMain.x, root.x) : root.x;
+  const spineEndX = lastMain ? Math.max(lastMain.x, root.x) : root.x;
+  const parts: string[] = mainTopics.length
+    ? [`<path d="M ${round(spineStartX)} ${round(root.y)} L ${round(spineEndX)} ${round(root.y)}" fill="none" stroke="${escapeAttr(root.node.style?.lineStroke ?? theme.connector)}" stroke-width="${round(2.2 * settings.connectorScale)}" stroke-linecap="round"${root.node.style?.lineDashed ? ` stroke-dasharray="8 6"` : ""}/>`]
+    : [];
+
+  for (const node of layout.nodes.filter(node => node.parentId)) {
+    const parent = node.parentId ? layout.byId.get(node.parentId) : undefined;
+    if (!parent) {
+      continue;
+    }
+
+    if (parent.node.id === root.node.id) {
+      const side = node.y >= root.y ? 1 : -1;
+      const endY = node.y - side * node.height / 2;
+      const stroke = connectorStroke(root, node, theme);
+      parts.push(`<path d="M ${round(node.x)} ${round(root.y)} L ${round(node.x)} ${round(endY)}" fill="none" stroke="${escapeAttr(stroke)}" stroke-width="${round(2 * settings.connectorScale)}" stroke-linecap="round"${connectorDash(root, node)}/>`);
+      parts.push(`<circle cx="${round(node.x)}" cy="${round(root.y)}" r="${round(4 * settings.connectorScale)}" fill="${escapeAttr(stroke)}"/>`);
       continue;
     }
 
@@ -573,10 +823,11 @@ type FishboneRibGeometry = {
 
 function fishboneRibGeometry(node: PositionedMindNode, root: PositionedMindNode): FishboneRibGeometry {
   const isTop = node.y < root.y;
+  const isLeft = node.x < root.x;
   return {
     startX: node.x,
     startY: node.y + (isTop ? node.height / 2 : -node.height / 2),
-    jointX: node.x + node.width / 2 + FISHBONE_RIB_JOINT_GAP,
+    jointX: node.x + (isLeft ? node.width / 2 + FISHBONE_RIB_JOINT_GAP : -(node.width / 2 + FISHBONE_RIB_JOINT_GAP)),
     jointY: root.y
   };
 }
@@ -1112,6 +1363,7 @@ function renderNodeShape(node: PositionedMindNode, fill: string, stroke: string,
   const y = node.y - node.height / 2;
   const shape = node.node.style?.shape ?? "";
   const common = `fill="${escapeAttr(fill)}" stroke="${escapeAttr(stroke)}" stroke-width="${round(strokeWidth)}"`;
+  const shadow = fill !== "transparent" ? ` filter="url(#mind-port-node-shadow)"` : "";
 
   if (fill === "transparent" && strokeWidth <= 0) {
     return "";
@@ -1134,15 +1386,36 @@ function renderNodeShape(node: PositionedMindNode, fill: string, stroke: string,
     ];
     const points = pointPairs.map(([pointX, pointY]) => `${round(pointX)},${round(pointY)}`).join(" ");
 
-    return `<polygon points="${points}" ${common}/>`;
+    return `<polygon points="${points}" ${common}${shadow}/>`;
   }
 
-  const rx = shape.endsWith("ellipserect") ? node.height / 2 : Math.min(10, node.height / 4);
-  return `<rect x="${round(x)}" y="${round(y)}" width="${round(node.width)}" height="${round(node.height)}" rx="${round(rx)}" ${common}/>`;
+  const rx = node.node.style?.borderRadius ?? (shape.endsWith("ellipserect") ? node.height / 2 : Math.min(10, node.height / 4));
+  return `<rect x="${round(x)}" y="${round(y)}" width="${round(node.width)}" height="${round(node.height)}" rx="${round(rx)}" ${common}${shadow}/>`;
+}
+
+function connectorStroke(parent: PositionedMindNode, node: PositionedMindNode, theme: RenderTheme): string {
+  return node.node.style?.lineStroke ??
+    parent.node.style?.lineStroke ??
+    node.node.style?.stroke ??
+    parent.node.style?.stroke ??
+    theme.connector;
+}
+
+function connectorDash(parent: PositionedMindNode, node: PositionedMindNode): string {
+  const rawLinePattern = String(
+    getStyleProperties(node.node.raw)["line-pattern"] ??
+    getStyleProperties(parent.node.raw)["line-pattern"] ??
+    ""
+  );
+  return node.node.style?.lineDashed || parent.node.style?.lineDashed || rawLinePattern.includes("dash")
+    ? ` stroke-dasharray="8 6"`
+    : "";
 }
 
 function connectorStrokeWidth(parent: PositionedMindNode, node: PositionedMindNode, settings: RenderSettings): number {
-  const rawWidth = parseSvgSize(getStyleProperties(node.node.raw)["line-width"]) ??
+  const rawWidth = node.node.style?.lineWidth ??
+    parent.node.style?.lineWidth ??
+    parseSvgSize(getStyleProperties(node.node.raw)["line-width"]) ??
     parseSvgSize(getStyleProperties(parent.node.raw)["line-width"]) ??
     2;
   const depthFactor = node.depth <= 1 ? 1.08 : node.depth === 2 ? 0.9 : 0.66;
@@ -1264,33 +1537,6 @@ function hasNoFillPattern(node: MindNode): boolean {
   return String((properties as { "fill-pattern"?: unknown })["fill-pattern"]) === "none";
 }
 
-function isFishboneRightHeaded(node: MindNode): boolean {
-  const raw = node.raw;
-  const structure = typeof raw === "object" && raw !== null && "structureClass" in raw
-    ? String((raw as { structureClass?: unknown }).structureClass ?? "")
-    : "";
-
-  return structure.includes("fishbone.rightHeaded");
-}
-
-function isOrgChartDown(node: MindNode): boolean {
-  const raw = node.raw;
-  const structure = typeof raw === "object" && raw !== null && "structureClass" in raw
-    ? String((raw as { structureClass?: unknown }).structureClass ?? "")
-    : "";
-
-  return structure.includes("org-chart.down");
-}
-
-function isTimelineThroughVertical(node: MindNode): boolean {
-  const raw = node.raw;
-  const structure = typeof raw === "object" && raw !== null && "structureClass" in raw
-    ? String((raw as { structureClass?: unknown }).structureClass ?? "")
-    : "";
-
-  return structure.includes("timeline.through.vertical");
-}
-
 function resolveNodeFontFamily(styleFontFamily: string | undefined, fallback: string): string {
   if (!styleFontFamily) {
     return fallback;
@@ -1338,6 +1584,10 @@ function resolveTheme(theme: RenderSvgOptions["theme"]): RenderTheme {
     return INK_THEME;
   }
 
+  if (theme === "mindport") {
+    return MINDPORT_THEME;
+  }
+
   return {
     ...DEFAULT_THEME,
     ...theme
@@ -1345,7 +1595,11 @@ function resolveTheme(theme: RenderSvgOptions["theme"]): RenderTheme {
 }
 
 function resolveRenderSettings(options: RenderSvgOptions, sheet?: MindDocument["sheets"][number]): RenderSettings {
-  const preset = options.stylePreset === "xmind" ? XMIND_RENDER_SETTINGS : CLEAN_RENDER_SETTINGS;
+  const preset = options.stylePreset === "xmind"
+    ? XMIND_RENDER_SETTINGS
+    : options.stylePreset === "processon"
+      ? PROCESSON_RENDER_SETTINGS
+      : CLEAN_RENDER_SETTINGS;
   const settings = {
     ...preset,
     ...options.renderSettings

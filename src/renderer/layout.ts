@@ -1,4 +1,4 @@
-import type { MindLayout, MindLayoutDirection, MindNode, MindSheet, PositionedMindNode, RenderSvgOptions } from "../types";
+import type { MindLayout, MindLayoutDirection, MindNode, MindSheet, MindStructureStyle, PositionedMindNode, RenderSvgOptions } from "../types";
 
 type MeasuredNode = {
   node: MindNode;
@@ -31,22 +31,28 @@ export function layoutMindMap(root: MindNode, options: RenderSvgOptions = {}): M
     ...DEFAULT_CONFIG,
     ...pickLayoutOptions(options)
   };
+  const structure = resolveStructureStyle(root, options);
+  const effectiveConfig = configForStructure(config, structure);
 
-  if (isFishboneRightHeaded(root)) {
-    return layoutFishboneRight(root, config);
+  if (structure === "fishbone-left" || structure === "fishbone-right") {
+    return layoutFishbone(root, effectiveConfig, structure);
   }
 
-  if (isOrgChartDown(root)) {
-    return layoutOrgChartDown(root, config);
+  if (structure === "org-down" || structure === "org-up") {
+    return orientLayoutY(layoutOrgChartDown(root, effectiveConfig), structure === "org-up");
   }
 
-  if (isTimelineThroughVertical(root)) {
-    return layoutTimelineVertical(root, config);
+  if (structure === "timeline-vertical") {
+    return layoutTimelineVertical(root, effectiveConfig);
+  }
+
+  if (structure === "timeline-horizontal") {
+    return layoutTimelineHorizontal(root, effectiveConfig);
   }
 
   const nodes: PositionedMindNode[] = [];
   const byId = new Map<string, PositionedMindNode>();
-  const rootMeasured = measureNode(root, config);
+  const rootMeasured = measureNode(root, effectiveConfig);
   const rootPositioned = placeNode(rootMeasured, undefined, 0, "root", 0, 0);
   nodes.push(rootPositioned);
   byId.set(root.id, rootPositioned);
@@ -55,18 +61,18 @@ export function layoutMindMap(root: MindNode, options: RenderSvgOptions = {}): M
   const rootArrangement = inferRootArrangement(root);
   const sideConfig = rootArrangement === "clockwise"
     ? {
-        ...config,
-        horizontalGap: Math.max(config.horizontalGap, 160),
-        verticalGap: Math.max(config.verticalGap, 42)
+        ...effectiveConfig,
+        horizontalGap: Math.max(effectiveConfig.horizontalGap, 160),
+        verticalGap: Math.max(effectiveConfig.verticalGap, 42)
       }
-    : config;
-  const leftChildren = selectChildrenForSide(rootChildren, config.direction, "left", rootArrangement);
-  const rightChildren = selectChildrenForSide(rootChildren, config.direction, "right", rootArrangement);
+    : effectiveConfig;
+  const leftChildren = selectChildrenForSide(rootChildren, effectiveConfig.direction, "left", rootArrangement);
+  const rightChildren = selectChildrenForSide(rootChildren, effectiveConfig.direction, "right", rootArrangement);
 
   placeRootSide(leftChildren, "left", rootMeasured, sideConfig, nodes, byId);
   placeRootSide(rightChildren, "right", rootMeasured, sideConfig, nodes, byId);
 
-  return normalizeLayout(nodes, config.padding);
+  return normalizeLayout(nodes, effectiveConfig.padding);
 }
 
 export function layoutMindSheet(sheet: MindSheet, options: RenderSvgOptions = {}): MindLayout {
@@ -74,7 +80,7 @@ export function layoutMindSheet(sheet: MindSheet, options: RenderSvgOptions = {}
     ...DEFAULT_CONFIG,
     ...pickLayoutOptions({
       ...options,
-      direction: options.direction ?? inferDirection(sheet)
+      direction: options.direction ?? inferDirection(sheet, options)
     })
   };
   const effectiveOptions: RenderSvgOptions = {
@@ -171,48 +177,95 @@ function shouldPreserveFloatingPositions(sheet: MindSheet): boolean {
   return positionedFloatingTopics >= 4 || relationshipCount >= 6;
 }
 
-function inferDirection(sheet: MindSheet): MindLayoutDirection {
-  const rootRaw = sheet.root.raw;
-  const structure = typeof rootRaw === "object" && rootRaw !== null && "structureClass" in rootRaw
-    ? String((rootRaw as { structureClass?: unknown }).structureClass ?? "")
-    : "";
+function inferDirection(sheet: MindSheet, options: RenderSvgOptions): MindLayoutDirection {
+  const structure = resolveStructureStyle(sheet.root, options);
 
-  if (structure.includes(".right")) {
+  if (structure === "mindmap-right" || structure === "logic-right" || structure === "tree-right") {
     return "right";
   }
 
-  if (structure.includes(".left")) {
+  if (structure === "mindmap-left" || structure === "logic-left" || structure === "tree-left") {
     return "left";
   }
 
   return "balanced";
 }
 
-function isFishboneRightHeaded(root: MindNode): boolean {
-  const raw = root.raw;
-  const structure = typeof raw === "object" && raw !== null && "structureClass" in raw
-    ? String((raw as { structureClass?: unknown }).structureClass ?? "")
-    : "";
+export function resolveStructureStyle(root: MindNode, options: RenderSvgOptions = {}): Exclude<MindStructureStyle, "auto"> {
+  if (options.structureStyle && options.structureStyle !== "auto") {
+    return options.structureStyle;
+  }
 
-  return structure.includes("fishbone.rightHeaded");
+  const rawStructure = getRawStructure(root);
+  const normalized = rawStructure.toLowerCase();
+
+  if (normalized.includes("ishikawa") || normalized.includes("fishbone")) {
+    return normalized.includes("right") && !normalized.includes("rightheaded") ? "fishbone-right" : "fishbone-left";
+  }
+
+  if (normalized.includes("org-chart.up") || normalized.includes("org_up") || normalized.includes("org-up")) {
+    return "org-up";
+  }
+
+  if (normalized.includes("org-chart") || normalized.includes("org_") || normalized.includes("org-")) {
+    return "org-down";
+  }
+
+  if (normalized.includes("timeline") && normalized.includes("horizontal")) {
+    return "timeline-horizontal";
+  }
+
+  if (normalized.includes("timeline")) {
+    return "timeline-vertical";
+  }
+
+  if (normalized.includes("tree") && normalized.includes("left")) {
+    return "tree-left";
+  }
+
+  if (normalized.includes("tree") && normalized.includes("right")) {
+    return "tree-right";
+  }
+
+  if (normalized.includes("logic") && normalized.includes("left")) {
+    return "logic-left";
+  }
+
+  if (normalized.includes("logic") && normalized.includes("right")) {
+    return "logic-right";
+  }
+
+  if (normalized.includes("left")) {
+    return "mindmap-left";
+  }
+
+  if (normalized.includes("right")) {
+    return "mindmap-right";
+  }
+
+  return "mindmap-balanced";
 }
 
-function isOrgChartDown(root: MindNode): boolean {
-  const raw = root.raw;
-  const structure = typeof raw === "object" && raw !== null && "structureClass" in raw
-    ? String((raw as { structureClass?: unknown }).structureClass ?? "")
-    : "";
+function configForStructure(config: LayoutConfig, structure: Exclude<MindStructureStyle, "auto">): LayoutConfig {
+  if (structure.endsWith("-right")) {
+    return { ...config, direction: "right" };
+  }
 
-  return structure.includes("org-chart.down");
+  if (structure.endsWith("-left")) {
+    return { ...config, direction: "left" };
+  }
+
+  return config;
 }
 
-function isTimelineThroughVertical(root: MindNode): boolean {
+function getRawStructure(root: MindNode): string {
   const raw = root.raw;
-  const structure = typeof raw === "object" && raw !== null && "structureClass" in raw
-    ? String((raw as { structureClass?: unknown }).structureClass ?? "")
-    : "";
+  if (!raw || typeof raw !== "object") {
+    return "";
+  }
 
-  return structure.includes("timeline.through.vertical");
+  const record = raw as { structureClass?: unknown; structure?: unknown; layout?: unknown; graphType?: unknown };
+  return String(record.structureClass ?? record.structure ?? record.layout ?? record.graphType ?? "");
 }
 
 function inferRootArrangement(root: MindNode): LayoutConfig["rootArrangement"] {
@@ -224,7 +277,7 @@ function inferRootArrangement(root: MindNode): LayoutConfig["rootArrangement"] {
   return structure.includes(".clockwise") ? "clockwise" : "alternating";
 }
 
-function layoutFishboneRight(root: MindNode, config: LayoutConfig): MindLayout {
+function layoutFishbone(root: MindNode, config: LayoutConfig, structure: "fishbone-left" | "fishbone-right"): MindLayout {
   const nodes: PositionedMindNode[] = [];
   const byId = new Map<string, PositionedMindNode>();
   const rootMeasured = measureFishboneNode(root, config, 0);
@@ -251,7 +304,8 @@ function layoutFishboneRight(root: MindNode, config: LayoutConfig): MindLayout {
     placeFishboneLeaves(topic, positioned, isTop, config, nodes, byId);
   });
 
-  return normalizeLayout(nodes, config.padding);
+  const layout = normalizeLayout(nodes, config.padding);
+  return structure === "fishbone-right" ? orientLayoutX(layout, true) : layout;
 }
 
 function layoutOrgChartDown(root: MindNode, config: LayoutConfig): MindLayout {
@@ -342,6 +396,80 @@ function layoutTimelineVertical(root: MindNode, config: LayoutConfig): MindLayou
   });
 
   return normalizeLayout(nodes, config.padding);
+}
+
+function layoutTimelineHorizontal(root: MindNode, config: LayoutConfig): MindLayout {
+  const nodes: PositionedMindNode[] = [];
+  const byId = new Map<string, PositionedMindNode>();
+  const rootMeasured = measureNode(root, {
+    ...config,
+    nodeMaxWidth: Math.max(config.nodeMaxWidth, 420)
+  });
+  const rootPositioned = placeNode(rootMeasured, undefined, 0, "root", 0, 0);
+  nodes.push(rootPositioned);
+  byId.set(root.id, rootPositioned);
+
+  const mainTopics = root.children ?? [];
+  const columnGap = Math.max(230, config.horizontalGap * 2.25);
+  const sideOffset = Math.max(150, config.verticalGap * 6.5);
+  const startX = -((mainTopics.length - 1) * columnGap) / 2;
+
+  mainTopics.forEach((topic, index) => {
+    const side = index % 2 === 0 ? "right" as const : "left" as const;
+    const measured = measureNode(topic, config);
+    const x = startX + index * columnGap;
+    const y = side === "right" ? sideOffset : -sideOffset;
+    const positioned = placeNode(measured, root.id, 1, side, x, y);
+    nodes.push(positioned);
+    byId.set(topic.id, positioned);
+
+    placeTimelineHorizontalChildren(topic, positioned, side, config, nodes, byId);
+  });
+
+  return normalizeLayout(nodes, config.padding);
+}
+
+function placeTimelineHorizontalChildren(
+  topic: MindNode,
+  parent: PositionedMindNode,
+  side: "left" | "right",
+  config: LayoutConfig,
+  nodes: PositionedMindNode[],
+  byId: Map<string, PositionedMindNode>
+): void {
+  const children = topic.children ?? [];
+  if (!children.length || topic.collapsed) {
+    return;
+  }
+
+  const childGap = Math.max(52, config.horizontalGap * 0.58);
+  const totalWidth = children.reduce((sum, child) => sum + measureNode(child, config).width, 0) + Math.max(0, children.length - 1) * childGap;
+  let cursorX = parent.x - totalWidth / 2;
+  const childY = side === "right"
+    ? parent.y + parent.height / 2 + Math.max(72, config.verticalGap * 3)
+    : parent.y - parent.height / 2 - Math.max(72, config.verticalGap * 3);
+
+  children.forEach(child => {
+    const measured = measureNode(child, config);
+    const childX = cursorX + measured.width / 2;
+    const positioned = placeNode(measured, parent.node.id, parent.depth + 1, side, childX, childY);
+    nodes.push(positioned);
+    byId.set(child.id, positioned);
+    cursorX += measured.width + childGap;
+
+    if (child.children.length && !child.collapsed) {
+      const subtreeHeights = child.children.map(grandchild => measureSubtreeHeight(grandchild, config));
+      const totalHeight = subtreeHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, child.children.length - 1) * config.verticalGap;
+      let cursorY = childY - totalHeight / 2;
+      const childXAnchor = childX + (side === "right" ? measured.width / 2 + config.horizontalGap : -(measured.width / 2 + config.horizontalGap));
+
+      child.children.forEach((grandchild, grandchildIndex) => {
+        const grandchildHeight = subtreeHeights[grandchildIndex] ?? 0;
+        placeSubtree(grandchild, child.id, positioned.depth + 1, side, childXAnchor, cursorY + grandchildHeight / 2, config, nodes, byId);
+        cursorY += grandchildHeight + config.verticalGap;
+      });
+    }
+  });
 }
 
 function placeTimelineChildren(
@@ -877,6 +1005,41 @@ function normalizeLayout(nodes: PositionedMindNode[], padding: number): MindLayo
   return {
     width: Math.ceil(bounds.maxX - bounds.minX + padding * 2),
     height: Math.ceil(bounds.maxY - bounds.minY + padding * 2),
+    nodes,
+    byId: new Map(nodes.map(node => [node.node.id, node]))
+  };
+}
+
+function orientLayoutX(layout: MindLayout, mirror: boolean): MindLayout {
+  if (!mirror) {
+    return layout;
+  }
+
+  const nodes = layout.nodes.map(node => ({
+    ...node,
+    x: layout.width - node.x,
+    side: node.side === "left" ? "right" as const : node.side === "right" ? "left" as const : "root" as const
+  }));
+
+  return {
+    ...layout,
+    nodes,
+    byId: new Map(nodes.map(node => [node.node.id, node]))
+  };
+}
+
+function orientLayoutY(layout: MindLayout, mirror: boolean): MindLayout {
+  if (!mirror) {
+    return layout;
+  }
+
+  const nodes = layout.nodes.map(node => ({
+    ...node,
+    y: layout.height - node.y
+  }));
+
+  return {
+    ...layout,
     nodes,
     byId: new Map(nodes.map(node => [node.node.id, node]))
   };

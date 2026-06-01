@@ -8,6 +8,8 @@ import {
   type MindDocument,
   type MindLayoutDirection,
   type MindNode,
+  type MindStructureStyle,
+  type ProcessOnStylePreset,
   type RenderSvgOptions
 } from "../src";
 
@@ -16,12 +18,80 @@ const xmindButton = requiredElement<HTMLButtonElement>("#sample-xmind");
 const processOnButton = requiredElement<HTMLButtonElement>("#sample-processon");
 const renderModeSelect = requiredElement<HTMLSelectElement>("#render-mode");
 const directionSelect = requiredElement<HTMLSelectElement>("#direction");
+const selectedStructureLabel = requiredElement<HTMLElement>("#selected-structure-label");
+const selectedStructureIcon = requiredElement<HTMLElement>(".selected-skeleton .mini-skeleton");
+const sameLevelAlign = requiredElement<HTMLInputElement>("#same-level-align");
+const hideCentralTopic = requiredElement<HTMLInputElement>("#hide-central-topic");
+const freeBranchLayout = requiredElement<HTMLInputElement>("#free-branch-layout");
+const topicSpacingSelect = requiredElement<HTMLSelectElement>("#topic-spacing");
+const watermarkModeSelect = requiredElement<HTMLSelectElement>("#watermark-mode");
+const backgroundModeSelect = requiredElement<HTMLSelectElement>("#background-mode");
+const canvasBackgroundInput = requiredElement<HTMLInputElement>("#canvas-background");
+const styleTabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-style-tab]"));
+const styleTabPanels = Array.from(document.querySelectorAll<HTMLElement>("[data-style-panel]"));
+const structureStyleInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="structure-style"]'));
+const processOnStyleInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="processon-style"]'));
 const svgHost = requiredElement<HTMLDivElement>("#svg-host");
 const zoomOut = requiredElement<HTMLButtonElement>("#zoom-out");
 const zoomIn = requiredElement<HTMLButtonElement>("#zoom-in");
 const zoomReset = requiredElement<HTMLButtonElement>("#zoom-reset");
 const zoomValue = requiredElement<HTMLOutputElement>("#zoom-value");
 const meta = requiredElement<HTMLPreElement>("#meta");
+
+type RenderModeOption = NonNullable<RenderSvgOptions["renderMode"]> | "compare";
+type BackgroundMode = "file" | "white" | "transparent" | "custom";
+type TopicSpacing = "compact" | "normal" | "loose";
+type DemoSettings = {
+  renderMode: RenderModeOption;
+  direction: MindLayoutDirection;
+  selectedStructureStyle: MindStructureStyle;
+  structureStyle: MindStructureStyle;
+  processOnStyle: ProcessOnStylePreset;
+  backgroundMode: BackgroundMode;
+  canvasBackground?: string;
+  hideCentralTopic: boolean;
+  sameLevelAlign: boolean;
+  freeBranchLayout: boolean;
+  topicSpacing: TopicSpacing;
+  watermark: NonNullable<RenderSvgOptions["watermark"]>;
+  preserveAttachedPositions: NonNullable<RenderSvgOptions["preserveAttachedPositions"]>;
+  horizontalGap: number;
+  verticalGap: number;
+};
+
+const STRUCTURE_LABELS: Record<string, string> = {
+  "auto": "按文件样式",
+  "mindmap-balanced": "基础思维导图 · 两侧",
+  "mindmap-left": "基础思维导图 · 向左",
+  "mindmap-right": "基础思维导图 · 向右",
+  "logic-left": "逻辑图 · 向左",
+  "logic-right": "逻辑图 · 向右",
+  "tree-left": "树形图 · 向左",
+  "tree-right": "树形图 · 向右",
+  "org-down": "组织结构图 · 向下",
+  "org-up": "组织结构图 · 向上",
+  "fishbone-left": "鱼骨图 · 向左",
+  "fishbone-right": "鱼骨图 · 向右",
+  "timeline-horizontal": "水平时间轴",
+  "timeline-vertical": "纵向时间轴"
+};
+
+const STRUCTURE_ICON_CLASSES: Record<string, string> = {
+  "auto": "skeleton-balanced",
+  "mindmap-balanced": "skeleton-balanced",
+  "mindmap-left": "skeleton-right",
+  "mindmap-right": "skeleton-right",
+  "logic-left": "skeleton-logic",
+  "logic-right": "skeleton-logic",
+  "tree-left": "skeleton-tree",
+  "tree-right": "skeleton-tree",
+  "org-down": "skeleton-org",
+  "org-up": "skeleton-org-up",
+  "fishbone-left": "skeleton-fishbone",
+  "fishbone-right": "skeleton-fishbone",
+  "timeline-horizontal": "skeleton-timeline",
+  "timeline-vertical": "skeleton-time-vertical"
+};
 
 let currentMindDocument: MindDocument | undefined;
 let currentDiagramDocument: DiagramDocument | undefined;
@@ -60,6 +130,39 @@ processOnButton.addEventListener("click", async () => {
 
 renderModeSelect.addEventListener("change", () => renderCurrent());
 directionSelect.addEventListener("change", () => renderCurrent());
+sameLevelAlign.addEventListener("change", () => renderCurrent());
+hideCentralTopic.addEventListener("change", () => renderCurrent());
+freeBranchLayout.addEventListener("change", () => renderCurrent());
+topicSpacingSelect.addEventListener("change", () => renderCurrent());
+watermarkModeSelect.addEventListener("change", () => renderCurrent());
+backgroundModeSelect.addEventListener("change", () => renderCurrent());
+canvasBackgroundInput.addEventListener("input", () => {
+  backgroundModeSelect.value = "custom";
+  renderCurrent();
+});
+
+for (const inputElement of structureStyleInputs) {
+  inputElement.addEventListener("change", () => renderCurrent());
+}
+
+for (const inputElement of processOnStyleInputs) {
+  inputElement.addEventListener("change", () => renderCurrent());
+}
+
+for (const button of styleTabButtons) {
+  button.addEventListener("click", () => {
+    const tab = button.dataset.styleTab;
+    for (const tabButton of styleTabButtons) {
+      const isActive = tabButton === button;
+      tabButton.classList.toggle("is-active", isActive);
+      tabButton.setAttribute("aria-selected", String(isActive));
+    }
+    for (const panel of styleTabPanels) {
+      panel.classList.toggle("is-active", panel.dataset.stylePanel === tab);
+    }
+  });
+}
+
 svgHost.addEventListener("pointerdown", event => {
   if (event.button !== 0) {
     return;
@@ -130,6 +233,98 @@ async function loadDocument(inputData: Blob | ArrayBuffer | string, fileName: st
   }
 }
 
+function readDemoSettings(): DemoSettings {
+  const direction = directionSelect.value as MindLayoutDirection;
+  const selectedStructureStyle = selectedRadioValue<MindStructureStyle>(structureStyleInputs, "mindmap-balanced");
+  const structureStyle = resolvePanelStructureStyle(selectedStructureStyle, direction);
+  const processOnStyle = selectedRadioValue<ProcessOnStylePreset>(processOnStyleInputs, "file");
+  const topicSpacing = topicSpacingSelect.value as TopicSpacing;
+  const gap = spacingFor(topicSpacing, sameLevelAlign.checked);
+  const backgroundMode = backgroundModeSelect.value as BackgroundMode;
+
+  updateStructurePreview(structureStyle);
+
+  return {
+    renderMode: renderModeSelect.value as RenderModeOption,
+    direction,
+    selectedStructureStyle,
+    structureStyle,
+    processOnStyle,
+    backgroundMode,
+    canvasBackground: resolveCanvasBackground(backgroundMode),
+    hideCentralTopic: hideCentralTopic.checked,
+    sameLevelAlign: sameLevelAlign.checked,
+    freeBranchLayout: freeBranchLayout.checked,
+    topicSpacing,
+    watermark: watermarkModeSelect.value as NonNullable<RenderSvgOptions["watermark"]>,
+    preserveAttachedPositions: freeBranchLayout.checked ? "all" : "top-level",
+    ...gap
+  };
+}
+
+function selectedRadioValue<T extends string>(inputs: HTMLInputElement[], fallback: T): T {
+  return (inputs.find(inputElement => inputElement.checked)?.value ?? fallback) as T;
+}
+
+function resolvePanelStructureStyle(selected: MindStructureStyle, direction: MindLayoutDirection): MindStructureStyle {
+  if (selected.startsWith("mindmap-")) {
+    return direction === "left"
+      ? "mindmap-left"
+      : direction === "right"
+        ? "mindmap-right"
+        : "mindmap-balanced";
+  }
+
+  if (selected.startsWith("logic-")) {
+    return direction === "left" ? "logic-left" : "logic-right";
+  }
+
+  if (selected.startsWith("tree-")) {
+    return direction === "left" ? "tree-left" : "tree-right";
+  }
+
+  if (selected.startsWith("fishbone-")) {
+    return direction === "right" ? "fishbone-right" : "fishbone-left";
+  }
+
+  return selected;
+}
+
+function resolveCanvasBackground(backgroundMode: BackgroundMode): string | undefined {
+  if (backgroundMode === "white") {
+    return "#ffffff";
+  }
+
+  if (backgroundMode === "transparent") {
+    return "transparent";
+  }
+
+  if (backgroundMode === "custom") {
+    return canvasBackgroundInput.value;
+  }
+
+  return undefined;
+}
+
+function spacingFor(spacing: TopicSpacing, alignSameLevel: boolean): Pick<DemoSettings, "horizontalGap" | "verticalGap"> {
+  const preset = spacing === "compact"
+    ? { horizontalGap: 72, verticalGap: 14 }
+    : spacing === "loose"
+      ? { horizontalGap: 138, verticalGap: 34 }
+      : { horizontalGap: 96, verticalGap: 22 };
+
+  return {
+    horizontalGap: preset.horizontalGap,
+    verticalGap: alignSameLevel ? Math.max(22, preset.verticalGap) : preset.verticalGap
+  };
+}
+
+function updateStructurePreview(structureStyle: MindStructureStyle): void {
+  selectedStructureLabel.textContent = STRUCTURE_LABELS[structureStyle] ?? structureStyle;
+  const nextClass = STRUCTURE_ICON_CLASSES[structureStyle] ?? "skeleton-balanced";
+  selectedStructureIcon.className = `mini-skeleton ${nextClass}`;
+}
+
 function renderCurrent(): void {
   if (currentDiagramDocument) {
     renderDiagramCurrent();
@@ -140,15 +335,21 @@ function renderCurrent(): void {
     return;
   }
 
-  const direction = directionSelect.value as MindLayoutDirection;
-  const renderMode = renderModeSelect.value as NonNullable<RenderSvgOptions["renderMode"]> | "compare";
-  const baseOptions = {
-    direction,
-    stylePreset: "xmind" as const,
-    preserveAttachedPositions: "top-level" as const
+  const settings = readDemoSettings();
+  const baseOptions: RenderSvgOptions = {
+    direction: settings.direction,
+    structureStyle: settings.structureStyle,
+    processOnStyle: settings.processOnStyle,
+    stylePreset: currentMindDocument.sourceFormat === "processon" ? "processon" as const : "xmind" as const,
+    preserveAttachedPositions: settings.preserveAttachedPositions,
+    canvasBackground: settings.canvasBackground,
+    hideCentralTopic: settings.hideCentralTopic,
+    watermark: settings.watermark,
+    horizontalGap: settings.horizontalGap,
+    verticalGap: settings.verticalGap
   };
 
-  if (renderMode === "compare") {
+  if (settings.renderMode === "compare") {
     const semanticSvg = renderToSvg(currentMindDocument, {
       ...baseOptions,
       padding: 56,
@@ -165,9 +366,8 @@ function renderCurrent(): void {
   } else {
     const svg = renderToSvg(currentMindDocument, {
       ...baseOptions,
-      direction,
-      padding: renderMode === "thumbnail" ? 0 : 56,
-      renderMode
+      padding: settings.renderMode === "thumbnail" ? 0 : 56,
+      renderMode: settings.renderMode
     });
     svgHost.innerHTML = `<div class="canvas-content">${svg}</div>`;
   }
@@ -179,7 +379,18 @@ function renderCurrent(): void {
     fileName: currentFileName,
     kind: "mind",
     sourceFormat: currentMindDocument.sourceFormat,
-    renderMode,
+    renderMode: settings.renderMode,
+    direction: settings.direction,
+    selectedStructureStyle: settings.selectedStructureStyle,
+    structureStyle: settings.structureStyle,
+    processOnStyle: settings.processOnStyle,
+    backgroundMode: settings.backgroundMode,
+    canvasBackground: settings.canvasBackground ?? "file",
+    hideCentralTopic: settings.hideCentralTopic,
+    sameLevelAlign: settings.sameLevelAlign,
+    freeBranchLayout: settings.freeBranchLayout,
+    topicSpacing: settings.topicSpacing,
+    watermark: settings.watermark,
     sheets: currentMindDocument.sheets.length,
     activeSheet: sheet?.title,
     root: sheet?.root.title,
@@ -350,41 +561,50 @@ async function createSampleXMind(): Promise<ArrayBuffer> {
 
 function createSampleProcessOnMind(): object {
   return {
-    title: "ProcessOn MVP",
-    root: {
-      id: "root",
-      text: "MindPort",
-      children: [
-        {
-          id: "processon",
-          text: "解析 ProcessOn POS",
-          labels: ["JSON"],
-          children: [
-            { id: "tree", text: "识别树结构" },
-            { id: "flat", text: "兼容扁平节点列表" }
-          ]
+    diagram: {
+      elements: {
+        title: "ProcessOn MVP",
+        id: "root",
+        root: true,
+        structure: "mind_ishikawa_left",
+        theme: {
+          background: "#F7E9DF",
+          common: { family: "Georgia" },
+          connectionStyle: { lineColor: "#68524C", lineWidth: 2, lineType: "roundBroken" },
+          centerTopic: { backgroundColor: "#3B634E", color: "#ffffff", "font-size": "25px", "border-color": "#50C28B", "border-width": "2px", "border-radius": "5px" },
+          secTopic: { backgroundColor: "#AA0C23", color: "#ffffff", "font-size": "15px", "border-radius": "6px" },
+          childTopic: { color: "#68524C", "font-size": "13px" },
+          floatingTopic: { backgroundColor: "#AA0C23", color: "#ffffff", "font-size": "15px", "border-radius": "5px" }
         },
-        {
-          id: "npm",
-          text: "作为 npm 包消费",
-          children: [
-            { id: "api", text: "parseMindFile" },
-            { id: "svg", text: "renderToSvg" }
-          ]
-        },
-        {
-          id: "next",
-          text: "下一步",
-          children: [
-            { id: "fixtures", text: "补充真实样例" },
-            { id: "compat", text: "扩展兼容矩阵" }
-          ]
-        }
-      ]
-    },
-    relationships: [
-      { id: "rel-1", from: "processon", to: "npm", title: "统一 AST" }
-    ]
+        children: [
+          {
+            id: "processon",
+            title: "解析 ProcessOn POS",
+            labels: ["JSON"],
+            children: [
+              { id: "tree", title: "识别树结构" },
+              { id: "flat", title: "兼容扁平节点列表" }
+            ]
+          },
+          {
+            id: "npm",
+            title: "作为 npm 包消费",
+            children: [
+              { id: "api", title: "parse / render" },
+              { id: "svg", title: "SVG / HTML" }
+            ]
+          },
+          {
+            id: "next",
+            title: "下一步",
+            children: [
+              { id: "fixtures", title: "补充真实样例" },
+              { id: "compat", title: "扩展兼容矩阵" }
+            ]
+          }
+        ]
+      }
+    }
   };
 }
 

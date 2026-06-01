@@ -13,6 +13,33 @@ export type MindPortWarning = {
 
 export type MindLayoutDirection = "balanced" | "right" | "left";
 
+export type MindStructureStyle =
+  | "auto"
+  | "mindmap-balanced"
+  | "mindmap-left"
+  | "mindmap-right"
+  | "logic-left"
+  | "logic-right"
+  | "tree-left"
+  | "tree-right"
+  | "org-down"
+  | "org-up"
+  | "fishbone-left"
+  | "fishbone-right"
+  | "timeline-vertical"
+  | "timeline-horizontal";
+
+export type ProcessOnStylePreset =
+  | "file"
+  | "classic"
+  | "warm"
+  | "fresh"
+  | "blue"
+  | "green"
+  | "purple"
+  | "dark"
+  | "gray";
+
 export type MindAsset = {
   id: string;
   name: string;
@@ -24,10 +51,14 @@ export type MindStyle = {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  borderRadius?: number;
   color?: string;
   fontFamily?: string;
   fontSize?: number;
   fontWeight?: string | number;
+  lineStroke?: string;
+  lineWidth?: number;
+  lineDashed?: boolean;
   shape?: string;
   raw?: unknown;
 };
@@ -125,7 +156,9 @@ export type RenderTheme = {
 export type RenderSvgOptions = {
   sheetIndex?: number;
   renderMode?: "semantic" | "thumbnail" | "auto";
-  stylePreset?: "clean" | "xmind";
+  stylePreset?: "clean" | "xmind" | "processon";
+  structureStyle?: MindStructureStyle;
+  processOnStyle?: ProcessOnStylePreset;
   renderSettings?: Partial<RenderSettings>;
   preserveAttachedPositions?: "none" | "top-level" | "all";
   direction?: MindLayoutDirection;
@@ -135,7 +168,10 @@ export type RenderSvgOptions = {
   nodeMinWidth?: number;
   nodeMaxWidth?: number;
   fontFamily?: string;
-  theme?: "default" | "ink" | Partial<RenderTheme>;
+  theme?: "default" | "ink" | "mindport" | Partial<RenderTheme>;
+  canvasBackground?: string;
+  hideCentralTopic?: boolean;
+  watermark?: "none" | "file" | "mindport";
   includeXmlDeclaration?: boolean;
 };
 
@@ -233,7 +269,7 @@ export type RenderDiagramOptions = {
   padding?: number;
   fontFamily?: string;
   includeXmlDeclaration?: boolean;
-  theme?: "default" | "ink" | Partial<RenderTheme>;
+  theme?: "default" | "ink" | "mindport" | Partial<RenderTheme>;
 };
 
 export type MindPortDocument =
@@ -259,6 +295,44 @@ export type RenderDocumentOptions = RenderSvgOptions & RenderDiagramOptions & {
 };
 
 export type RenderFileOptions = ParseFileOptions & RenderDocumentOptions;
+
+export type RenderHtmlOptions = RenderDocumentOptions & {
+  title?: string;
+  lang?: string;
+  className?: string;
+  includeMetadataPanel?: boolean;
+  minHeight?: number | string;
+};
+
+export type MindPortRenderOptions = RenderFileOptions & {
+  output?: "svg" | "html";
+  html?: RenderHtmlOptions;
+};
+
+export type MindPortInspection = {
+  fileName?: string;
+  kind: "mind" | "diagram";
+  sourceFormat: Exclude<MindSourceFormat, "auto"> | Exclude<DiagramSourceFormat, "auto">;
+  title?: string;
+  structureStyle?: MindStructureStyle;
+  sheets: number;
+  pages: number;
+  nodes: number;
+  floatingTopics: number;
+  relationships: number;
+  shapes: number;
+  connectors: number;
+  assets: number;
+  warnings: MindPortWarning[];
+};
+
+export type MindPortRenderResult = {
+  document: MindPortDocument;
+  inspection: MindPortInspection;
+  output: "svg" | "html";
+  content: string;
+  warnings: MindPortWarning[];
+};
 
 export type PositionedMindNode = {
   node: MindNode;

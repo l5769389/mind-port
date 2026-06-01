@@ -9,7 +9,12 @@ import type {
   MindFileInput,
   ParseDiagramOptions
 } from "../types";
-import { asArray, firstString, inputToText, isRecord, stableId, stripHtml, tryParseJson } from "../utils";
+import { firstString, isRecord, parseJsonLikeInput, stableId, stripHtml, tryParseJson } from "../utils";
+
+type ParsedDiagramStyle = {
+  style?: DiagramStyle;
+  properties: Record<string, unknown>;
+};
 
 export async function parseDiagramFile(input: MindFileInput, options: ParseDiagramOptions = {}): Promise<DiagramDocument> {
   const format = options.format ?? "auto";
@@ -28,9 +33,7 @@ export async function parseDiagramFile(input: MindFileInput, options: ParseDiagr
 
 export async function parseProcessOnDiagram(input: MindFileInput): Promise<DiagramDocument> {
   try {
-    const raw = typeof input === "object" && !(input instanceof Uint8Array) && !(input instanceof ArrayBuffer) && !(typeof Blob !== "undefined" && input instanceof Blob)
-      ? input
-      : tryParseJson(await inputToText(input));
+    const raw = await parseJsonLikeInput(input);
 
     if (!raw) {
       throw new ParseMindError("ProcessOn diagram input is not valid JSON.");
@@ -130,7 +133,7 @@ function parseShape(raw: Record<string, unknown>, index: number): DiagramShape |
 
   const fallbackWidth = image ? 160 : title ? Math.max(96, title.length * 9 + 30) : 120;
   const fallbackHeight = image ? 100 : title ? 48 : 60;
-  const style = parseDiagramStyle(raw);
+  const parsedStyle = parseDiagramStyle(raw);
   const x = geometry?.x ?? parseNumber(raw.left, getRecord(raw.position)?.x) ?? 0;
   const y = geometry?.y ?? parseNumber(raw.top, getRecord(raw.position)?.y) ?? 0;
   const width = geometry?.width ?? fallbackWidth;
@@ -139,14 +142,14 @@ function parseShape(raw: Record<string, unknown>, index: number): DiagramShape |
   return {
     id: getId(raw, "diagram-shape", index),
     title: title ?? "",
-    kind: inferShapeKind(raw, style),
+    kind: inferShapeKind(raw, parsedStyle.properties),
     x,
     y,
     width,
     height,
     ...(firstString(raw.parentId, raw.parent, raw.pid, raw.group) ? { parentId: firstString(raw.parentId, raw.parent, raw.pid, raw.group) } : {}),
     ...(image ? { image } : {}),
-    ...(style ? { style } : {}),
+    ...(parsedStyle.style ? { style: parsedStyle.style } : {}),
     raw
   };
 }
@@ -156,6 +159,7 @@ function parseConnector(raw: Record<string, unknown>, index: number, shapes: Dia
   const to = firstString(raw.to, raw.target, raw.targetId, raw.end, raw.endId);
   const points = parseConnectorPoints(raw);
   const resolvedPoints = points.length ? points : inferConnectorPoints(from, to, shapes);
+  const parsedStyle = parseDiagramStyle(raw);
 
   if (!from && !to && resolvedPoints.length < 2) {
     return undefined;
@@ -167,7 +171,7 @@ function parseConnector(raw: Record<string, unknown>, index: number, shapes: Dia
     ...(to ? { to } : {}),
     ...(getTitle(raw) ? { title: getTitle(raw) } : {}),
     points: resolvedPoints,
-    ...(parseDiagramStyle(raw) ? { style: parseDiagramStyle(raw) } : {}),
+    ...(parsedStyle.style ? { style: parsedStyle.style } : {}),
     raw
   };
 }
@@ -266,7 +270,7 @@ function parsePageSize(raw: Record<string, unknown>, shapes: DiagramShape[]): { 
   };
 }
 
-function parseDiagramStyle(raw: Record<string, unknown>): DiagramStyle | undefined {
+function parseDiagramStyle(raw: Record<string, unknown>): ParsedDiagramStyle {
   const styleSource = raw.style ?? raw.styles ?? raw.attrs ?? getRecord(raw.data)?.style;
   const properties = {
     ...parseStyleString(typeof styleSource === "string" ? styleSource : undefined),
@@ -275,7 +279,7 @@ function parseDiagramStyle(raw: Record<string, unknown>): DiagramStyle | undefin
   };
 
   if (!Object.keys(properties).length) {
-    return undefined;
+    return { properties };
   }
 
   const fill = getStyleString(properties.fill, properties.fillColor, properties.background, properties.backgroundColor, properties.bgColor);
@@ -305,7 +309,7 @@ function parseDiagramStyle(raw: Record<string, unknown>): DiagramStyle | undefin
     raw: styleSource ?? raw
   };
 
-  return style;
+  return { style, properties };
 }
 
 function parseStyleString(style: string | undefined): Record<string, unknown> {
@@ -326,9 +330,8 @@ function parseStyleString(style: string | undefined): Record<string, unknown> {
   return output;
 }
 
-function inferShapeKind(raw: Record<string, unknown>, style: DiagramStyle | undefined): DiagramShapeKind {
-  const styleRecord = isRecord(style?.raw) ? style.raw : {};
-  const rawKind = firstString(raw.shape, raw.shapeType, raw.type, raw.category, raw.name, styleRecord.shape, styleRecord.shapeType);
+function inferShapeKind(raw: Record<string, unknown>, styleProperties: Record<string, unknown>): DiagramShapeKind {
+  const rawKind = firstString(raw.shape, raw.shapeType, raw.type, raw.category, raw.name, styleProperties.shape, styleProperties.shapeType);
   const normalized = (rawKind ?? "").toLowerCase();
 
   if (firstString(raw.image, raw.imageUrl, raw.img)) {
@@ -363,7 +366,7 @@ function inferShapeKind(raw: Record<string, unknown>, style: DiagramStyle | unde
     return "text";
   }
 
-  if (normalized.includes("round") || styleRecord.rounded === "1" || styleRecord.rounded === true) {
+  if (normalized.includes("round") || styleProperties.rounded === "1" || styleProperties.rounded === true) {
     return "roundRectangle";
   }
 

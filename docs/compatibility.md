@@ -30,7 +30,9 @@ MindPort is a renderer and parser package, not a clone of the XMind or ProcessOn
 | Wrapped payloads | Searches `diagram`, `content`, `data`, `mind`, `mindmap`, and `json` wrappers |
 | Multi-page/sheet structures | Supported where sheets/pages expose mind-map payloads |
 | Tree and flat nodes | Supported |
-| Mind-map variants | Rendered through readable semantic layouts; exact official layout is not guaranteed |
+| Mind-map variants | Basic mind map, logic, tree, org chart, fishbone/Ishikawa, and timeline structures render through semantic layouts |
+| File theme | Reads ProcessOn `theme.background`, topic layer styles, and connection styles where present |
+| Manual style override | `structureStyle` and `processOnStyle` can override file-driven layout and color presets |
 
 ## ProcessOn Diagrams
 

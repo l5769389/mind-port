@@ -1,4 +1,4 @@
-import { parseFile } from "mind-port";
+import { parse } from "mind-port";
 import { createMindPortViewer } from "mind-port/viewer";
 
 bootstrap().catch(error => {
@@ -6,14 +6,14 @@ bootstrap().catch(error => {
 });
 
 async function bootstrap() {
-  const parsed = await parseFile({
+  const parsed = await parse({
     title: "Packed package preview",
     root: {
       id: "root",
       text: "mind-port npm tarball",
       children: [
-        { id: "parse", text: "parseFile()" },
-        { id: "render", text: "renderDocumentToSvg()" },
+        { id: "parse", text: "parse()" },
+        { id: "render", text: "render()" },
         { id: "viewer", text: "mind-port/viewer" }
       ]
     }
@@ -21,7 +21,6 @@ async function bootstrap() {
 
   createMindPortViewer(document.querySelector("#app"), parsed, {
     compatibilityMode: "semantic",
-    stylePreset: "xmind",
     controls: true,
     padding: 64
   });

@@ -72,6 +72,20 @@ export async function inputToText(input: MindFileInput): Promise<string> {
   return new TextDecoder("utf-8").decode(bytes);
 }
 
+export async function parseJsonLikeInput(input: MindFileInput): Promise<unknown | undefined> {
+  if (!isBytesLikeInput(input) && (isRecord(input) || Array.isArray(input))) {
+    return input;
+  }
+
+  return tryParseJson(await inputToText(input));
+}
+
+function isBytesLikeInput(input: MindFileInput): boolean {
+  return input instanceof Uint8Array ||
+    input instanceof ArrayBuffer ||
+    (typeof Blob !== "undefined" && input instanceof Blob);
+}
+
 export function isZipBytes(bytes: Uint8Array): boolean {
   return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b;
 }

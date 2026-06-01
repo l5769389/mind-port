@@ -24,6 +24,18 @@ const INK_THEME: RenderTheme = {
   relationship: "#b45309"
 };
 
+const MINDPORT_THEME: RenderTheme = {
+  background: "#f3f6fa",
+  rootFill: "#14324a",
+  rootStroke: "#14324a",
+  nodeFill: "#ffffff",
+  nodeStroke: "#d6deea",
+  text: "#172033",
+  mutedText: "#68778c",
+  connector: "#72839b",
+  relationship: "#d78b45"
+};
+
 type DiagramBounds = {
   minX: number;
   minY: number;
@@ -64,6 +76,9 @@ export function renderDiagramToSvg(document: DiagramDocument, options: RenderDia
 
   return `${xmlDeclaration}<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttr(page.title)}">
   <defs>
+    <filter id="mind-port-diagram-node-shadow" x="-20%" y="-30%" width="140%" height="170%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#132033" flood-opacity="0.11"/>
+    </filter>
     <marker id="mind-port-diagram-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/>
     </marker>
@@ -88,7 +103,8 @@ function renderShape(shape: DiagramShape, offset: DiagramPoint, theme: RenderThe
   const strokeWidth = style?.strokeWidth ?? (stroke === "transparent" ? 0 : 1.4);
   const opacity = style?.opacity ?? 1;
   const dash = style?.dashed ? ` stroke-dasharray="8 6"` : "";
-  const common = `fill="${escapeAttr(fill)}" stroke="${escapeAttr(stroke)}" stroke-width="${round(strokeWidth)}"${dash}`;
+  const shadow = fill !== "transparent" && shape.kind !== "container" && shape.kind !== "swimlane" ? ` filter="url(#mind-port-diagram-node-shadow)"` : "";
+  const common = `fill="${escapeAttr(fill)}" stroke="${escapeAttr(stroke)}" stroke-width="${round(strokeWidth)}"${dash}${shadow}`;
   const shapeSvg = renderShapeGeometry(shape, x, y, width, height, common, theme);
   const imageSvg = shape.image ? renderShapeImage(shape, x, y, width, height) : "";
   const textSvg = shape.title ? renderShapeText(shape, x, y, width, height, style, theme, fontFamily) : "";
@@ -330,6 +346,10 @@ function resolveTheme(theme: RenderDiagramOptions["theme"]): RenderTheme {
 
   if (theme === "ink") {
     return INK_THEME;
+  }
+
+  if (theme === "mindport") {
+    return MINDPORT_THEME;
   }
 
   return {
